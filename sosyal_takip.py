@@ -10,6 +10,37 @@ from streamlit_gsheets import GSheetsConnection
 st.set_page_config(page_title="RH+ Sosyal Medya Yönetim Paneli", layout="wide")
 
 # ==========================================
+# 🔒 GİRİŞ SİSTEMİ VE GÜVENLİK AYARI
+# ==========================================
+# Uygulamanın giriş şifresini buradan değiştirebilirsiniz:
+GIRIS_SIFRESI = "RHplus2026*"
+
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
+
+# Eğer kullanıcı giriş yapmadıysa sadece giriş ekranını göster
+if not st.session_state.logged_in:
+    col_l, col_m, col_r = st.columns([1, 2, 1])
+    with col_m:
+        st.markdown("<br><br>", unsafe_allow_html=True)
+        if os.path.exists("logo.jpg"):
+            st.image("logo.jpg", use_container_width=True)
+        
+        st.title("🔒 Kurumsal Yönetim Paneli")
+        st.subheader("RH+ Reklam Film Tasarım")
+        
+        sifre_giris = st.text_input("Lütfen erişim şifresini giriniz:", type="password")
+        
+        if st.button("Sisteme Giriş Yap", use_container_width=True):
+            if sifre_giris == GIRIS_SIFRESI:
+                st.session_state.logged_in = True
+                st.success("Giriş başarılı! Sistem yükleniyor...")
+                st.rerun()
+            else:
+                st.error("Hatalı şifre! Lütfen tekrar deneyiniz.")
+    st.stop() # Giriş yapılmadığı sürece kodun kalanını çalıştırma ve gizle
+
+# ==========================================
 # GOOGLE SHEETS CANLI BAĞLANTI AYARLARI
 # ==========================================
 try:
@@ -18,7 +49,6 @@ except Exception as e:
     st.error("Google Sheets bağlantısı kurulamadı. Lütfen bulut panelindeki Secrets (Sırlar) ayarlarınızı kontrol edin.")
     st.stop()
 
-# Veritabanını Google Sheets'ten canlı okuma fonksiyonu
 def canlı_veritabanı_yukle():
     try:
         df = conn.read(worksheet="Veritabanı", ttl=0)
@@ -66,14 +96,18 @@ def get_link_preview(url):
         return None
 
 # ==========================================
-# SOL MENÜ (SIDEBAR) - LOGO ENTEGRASYONU
+# SOL MENÜ (SIDEBAR)
 # ==========================================
-# Eğer klasörde logo.jpg varsa en üstte gösterir, yoksa hata vermeden geçer
 if os.path.exists("logo.jpg"):
     st.sidebar.image("logo.jpg", use_container_width=True)
 
 st.sidebar.title("🗂️ Yönetim Paneli")
 ana_sekme = st.sidebar.radio("Giriş / Rapor Seçimi:", ["📝 Günlük Veri Girişi", "📊 Rapor ve Çıktı Merkezi"])
+
+# Güvenli Çıkış Butonu
+if st.sidebar.button("🚪 Sistemden Güvenli Çıkış"):
+    st.session_state.logged_in = False
+    st.rerun()
 
 st.sidebar.markdown("---")
 if ana_sekme == "📝 Günlük Veri Girişi":
