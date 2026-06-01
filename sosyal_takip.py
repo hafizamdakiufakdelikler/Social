@@ -3,43 +3,49 @@ import pandas as pd
 import requests
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
-import json
-import os
 import io
+import os
+from streamlit_gsheets import GSheetsConnection
 
-st.set_page_config(page_title="Sosyal Medya Yönetim Paneli", layout="wide")
-
-DB_FILE = "medya_verileri.json"
+st.set_page_config(page_title="RH+ Sosyal Medya Yönetim Paneli", layout="wide")
 
 # ==========================================
-# VERİTABANI DOSYA YÜKLEME VE KAYDETME FONKSİYONLARI
+# GOOGLE SHEETS CANLI BAĞLANTI AYARLARI
 # ==========================================
-def veri_tabani_yukle():
-    if os.path.exists(DB_FILE):
-        with open(DB_FILE, "r", encoding="utf-8") as f:
-            icerik = json.load(f)
-            # Eğer eski koddan kalan sözlük yapısı varsa listeye dönüştür
-            if isinstance(icerik, dict):
-                return list(icerik.values())
-            return icerik
-    return []
+try:
+    conn = st.connection("gsheets", type=GSheetsConnection)
+except Exception as e:
+    st.error("Google Sheets bağlantısı kurulamadı. Lütfen bulut panelindeki Secrets (Sırlar) ayarlarınızı kontrol edin.")
+    st.stop()
 
-def veri_tabani_kaydet(data):
-    with open(DB_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=4)
+# Veritabanını Google Sheets'ten canlı okuma fonksiyonu
+def canlı_veritabanı_yukle():
+    try:
+        df = conn.read(worksheet="Veritabanı", ttl=0)
+        df = df.fillna("")
+        return df.to_dict(orient="records")
+    except Exception:
+        return []
 
-if "veri_tabani" not in st.session_state:
-    st.session_state.veri_tabani = veri_tabani_yukle()
+def canlı_veritabanı_kaydet(data_list):
+    if data_list:
+        df = pd.DataFrame(data_list)
+    else:
+        df = pd.DataFrame(columns=[
+            "Ay", "Tarih", "Kayıt Adı", "Tür", "platform", 
+            "url", "baslik", "aciklama", "web_haber", "web_duyuru", "web_not", "genel_not"
+        ])
+    conn.update(worksheet="Veritabanı", data=df)
 
-# Geçici Önizleme Hafızası
-if "temp_preview" not in st.session_state:
-    st.session_state.temp_preview = {"url": "", "title": "", "description": "", "image": None}
+st.session_state.veri_tabani = canlı_veritabanı_yukle()
 
-# Sabit Takip Listeleri Başlangıç Ayarı
 if "kisiler" not in st.session_state:
     st.session_state.kisiler = [f"Takip Edilen Kişi {i}" for i in range(1, 11)]
 if "web_siteleri" not in st.session_state:
     st.session_state.web_siteleri = [f"Haber/Kurum Sitesi {i}" for i in range(1, 6)]
+
+if "temp_preview" not in st.session_state:
+    st.session_state.temp_preview = {"url": "", "title": "", "description": "", "image": None}
 
 platform_listesi = ["Instagram", "YouTube", "LinkedIn", "X", "Nsosyal", "Facebook"]
 
@@ -60,8 +66,12 @@ def get_link_preview(url):
         return None
 
 # ==========================================
-# SOL MENÜ (SIDEBAR)
+# SOL MENÜ (SIDEBAR) - LOGO ENTEGRASYONU
 # ==========================================
+# Eğer klasörde logo.jpg varsa en üstte gösterir, yoksa hata vermeden geçer
+if os.path.exists("logo.jpg"):
+    st.sidebar.image("logo.jpg", use_container_width=True)
+
 st.sidebar.title("🗂️ Yönetim Paneli")
 ana_sekme = st.sidebar.radio("Giriş / Rapor Seçimi:", ["📝 Günlük Veri Girişi", "📊 Rapor ve Çıktı Merkezi"])
 
@@ -80,8 +90,8 @@ if ana_sekme == "📝 Günlük Veri Girişi":
                 for entry in st.session_state.veri_tabani:
                     if entry.get("Kayıt Adı") == secilen_kayit and entry.get("Tür") == "Kişi/Kurum":
                         entry["Kayıt Adı"] = yeni_isim
-                veri_tabani_kaydet(st.session_state.veri_tabani)
-                st.success("İsim güncellendi!")
+                canlı_veritabanı_kaydet(st.session_state.veri_tabani)
+                st.success("İsim Google Sheets üzerinde güncellendi!")
                 st.rerun()
         yeni_kisi = st.sidebar.text_input("➕ Yeni Kişi/Kurum Ekle:")
         if st.sidebar.button("Kişiyi Ekle"):
@@ -98,8 +108,8 @@ if ana_sekme == "📝 Günlük Veri Girişi":
                 for entry in st.session_state.veri_tabani:
                     if entry.get("Kayıt Adı") == secilen_kayit and entry.get("Tür") == "Web Sitesi":
                         entry["Kayıt Adı"] = yeni_site_ismi
-                veri_tabani_kaydet(st.session_state.veri_tabani)
-                st.success("Site ismi güncellendi!")
+                canlı_veritabanı_kaydet(st.session_state.veri_tabani)
+                st.success("Site ismi Google Sheets üzerinde güncellendi!")
                 st.rerun()
         yeni_site = st.sidebar.text_input("➕ Yeni Web Sitesi Ekle:")
         if st.sidebar.button("Siteyi Ekle"):
@@ -126,9 +136,6 @@ if ana_sekme == "📝 Günlük Veri Girişi":
     st.markdown("---")
     st.header(f"📝 Veri Girişi: {secilen_kayit} ({secilen_gun})")
 
-    # --------------------------------------------------
-    # O GÜN DAHA ÖNCE EKLENEN KAYITLARI GÖSTERME VE SİLME
-    # --------------------------------------------------
     mevcut_kayitlar = [x for x in st.session_state.veri_tabani if x.get("Tarih") == secilen_gun and x.get("Kayıt Adı") == secilen_kayit]
     if mevcut_kayitlar:
         with st.expander(f"📋 Bugün Bu Kayda Eklenen Mevcut Gönderiler ({len(mevcut_kayitlar)} Adet)", expanded=True):
@@ -142,13 +149,10 @@ if ana_sekme == "📝 Günlük Veri Girişi":
                 with col_rec_del:
                     if st.button("🗑️ Sil", key=f"del_{idx}_{mk.get('url')[:10]}"):
                         st.session_state.veri_tabani.remove(mk)
-                        veri_tabani_kaydet(st.session_state.veri_tabani)
-                        st.success("Kayıt silindi!")
+                        canlı_veritabanı_kaydet(st.session_state.veri_tabani)
+                        st.success("Kayıt buluttan silindi!")
                         st.rerun()
 
-    # --------------------------------------------------
-    # YENİ GÖNDERİ EKLEME FORMU
-    # --------------------------------------------------
     st.subheader("➕ Yeni İçerik / Gönderi Ekle")
     
     if "👤 Kişiler / Kuruluşlar" in kayit_turu:
@@ -187,7 +191,7 @@ if ana_sekme == "📝 Günlük Veri Girişi":
             g_web_duyuru = st.text_area("📢 Duyurular:", height=120)
         with col_n:
             g_web_not = st.text_area("📝 Özel Notlar:", height=120)
-        g_platform, g_url, g_title, g_desc = "-", "-", "-", "-"
+        g_platform, g_url = "-", "-"
 
     st.markdown("---")
     col_not, col_foto = st.columns([1, 2])
@@ -199,22 +203,20 @@ if ana_sekme == "📝 Günlük Veri Girişi":
             st.error("Maksimum 6 fotoğraf yükleyebilirsiniz!")
 
     st.markdown("---")
-    if st.button("💾 Bu Gönderiyi Raporlara Yeni Kayıt Olarak Ekle", use_container_width=True):
+    if st.button("💾 Bu Gönderiyi Google Sheets Bulutuna Kaydet", use_container_width=True):
         yeni_kayit = {
             "Ay": secilen_ay, "Tarih": secilen_gun, "Kayıt Adı": secilen_kayit, 
             "Tür": "Kişi/Kurum" if "👤" in kayit_turu else "Web Sitesi",
-            "platform": g_platform, 
-            "url": g_url, 
+            "platform": g_platform, "url": g_url, 
             "baslik": st.session_state.temp_preview["title"] if "👤" in kayit_turu else "-", 
             "aciklama": st.session_state.temp_preview["description"] if "👤" in kayit_turu else "-",
             "web_haber": g_web_haber, "web_duyuru": g_web_duyuru, "web_not": g_web_not, 
             "genel_not": g_genel_not
         }
         st.session_state.veri_tabani.append(yeni_kayit)
-        veri_tabani_kaydet(st.session_state.veri_tabani)
-        # Hafızayı temizle
+        canlı_veritabanı_kaydet(st.session_state.veri_tabani)
         st.session_state.temp_preview = {"url": "", "title": "", "description": "", "image": None}
-        st.success(f"🎉 Gönderi başarıyla eklendi! Rapor listesinde yeni bir satır oluşturuldu.")
+        st.success(f"🎉 Rapor başarıyla doğrudan Google Sheets dosyanıza işlendi!")
         st.rerun()
 
 # ==========================================
@@ -244,7 +246,7 @@ elif ana_sekme == "📊 Rapor ve Çıktı Merkezi":
         df_rapor = pd.DataFrame(rapor_listesi)
         df_rapor = df_rapor.sort_values(by="Tarih")
         
-        st.subheader(f"📈 {rapor_ay} Ayı Toplu Rapor Önizlemesi ({len(df_rapor)} Kayıt Bulundu)")
+        st.subheader(f"📈 {rapor_ay} Ayı Toplu Bulut Raporu ({len(df_rapor)} Gönderi Arşivlendi)")
         st.dataframe(df_rapor, use_container_width=True, hide_index=True)
         
         buffer = io.BytesIO()
@@ -260,4 +262,4 @@ elif ana_sekme == "📊 Rapor ve Çıktı Merkezi":
             use_container_width=True
         )
     else:
-        st.info(f"{rapor_ay} ayına ait henüz kaydedilmiş hiçbir veri bulunamadı.")
+        st.info(f"{rapor_ay} ayına ait henüz bulutta kaydedilmiş bir veri bulunamadı.")
