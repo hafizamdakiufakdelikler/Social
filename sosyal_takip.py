@@ -12,33 +12,28 @@ st.set_page_config(page_title="RH+ Sosyal Medya Yönetim Paneli", layout="wide")
 # ==========================================
 # 🔒 GİRİŞ SİSTEMİ VE GÜVENLİK AYARI
 # ==========================================
-# Uygulamanın giriş şifresini buradan değiştirebilirsiniz:
 GIRIS_SIFRESI = "RHplus2026*"
 
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
 
-# Eğer kullanıcı giriş yapmadıysa sadece giriş ekranını göster
 if not st.session_state.logged_in:
     col_l, col_m, col_r = st.columns([1, 2, 1])
     with col_m:
         st.markdown("<br><br>", unsafe_allow_html=True)
         if os.path.exists("logo.jpg"):
             st.image("logo.jpg", use_container_width=True)
-        
         st.title("🔒 Kurumsal Yönetim Paneli")
         st.subheader("RH+ Reklam Film Tasarım")
-        
         sifre_giris = st.text_input("Lütfen erişim şifresini giriniz:", type="password")
-        
         if st.button("Sisteme Giriş Yap", use_container_width=True):
             if sifre_giris == GIRIS_SIFRESI:
                 st.session_state.logged_in = True
-                st.success("Giriş başarılı! Sistem yükleniyor...")
+                st.success("Giriş başarılı!")
                 st.rerun()
             else:
-                st.error("Hatalı şifre! Lütfen tekrar deneyiniz.")
-    st.stop() # Giriş yapılmadığı sürece kodun kalanını çalıştırma ve gizle
+                st.error("Hatalı şifre!")
+    st.stop()
 
 # ==========================================
 # GOOGLE SHEETS CANLI BAĞLANTI AYARLARI
@@ -49,6 +44,7 @@ except Exception as e:
     st.error("Google Sheets bağlantısı kurulamadı. Lütfen bulut panelindeki Secrets (Sırlar) ayarlarınızı kontrol edin.")
     st.stop()
 
+# Gönderileri Yükleme ve Kaydetme
 def canlı_veritabanı_yukle():
     try:
         df = conn.read(worksheet="Veritabanı", ttl=0)
@@ -67,12 +63,34 @@ def canlı_veritabanı_kaydet(data_list):
         ])
     conn.update(worksheet="Veritabanı", data=df)
 
-st.session_state.veri_tabani = canlı_veritabanı_yukle()
+# İsim Listelerini Google Sheets'ten Okuma ve Kaydetme (Sıfırlanmayı Önler)
+def bulut_listelerini_yukle():
+    try:
+        df = conn.read(worksheet="Ayarlar", ttl=0)
+        df = df.fillna("")
+        kisiler = [x for x in df["Kişiler"].tolist() if x != ""]
+        siteler = [x for x in df["Web Siteleri"].tolist() if x != ""]
+        return {"kisiler": kisiler, "web_siteleri": siteler}
+    except Exception:
+        return {
+            "kisiler": [f"Takip Edilen Kişi {i}" for i in range(1, 11)],
+            "web_siteleri": [f"Haber/Kurum Sitesi {i}" for i in range(1, 6)]
+        }
 
-if "kisiler" not in st.session_state:
-    st.session_state.kisiler = [f"Takip Edilen Kişi {i}" for i in range(1, 11)]
-if "web_siteleri" not in st.session_state:
-    st.session_state.web_siteleri = [f"Haber/Kurum Sitesi {i}" for i in range(1, 6)]
+def bulut_listelerini_kaydet(lists):
+    max_len = max(len(lists["kisiler"]), len(lists["web_siteleri"]))
+    kisiler_list = lists["kisiler"] + [""] * (max_len - len(lists["kisiler"]))
+    siteler_list = lists["web_siteleri"] + [""] * (max_len - len(lists["web_siteleri"]))
+    
+    df = pd.DataFrame({
+        "Kişiler": kisiler_list,
+        "Web Siteleri": siteler_list
+    })
+    conn.update(worksheet="Ayarlar", data=df)
+
+# Canlı Verileri Çek
+st.session_state.veri_tabani = canlı_veritabanı_yukle()
+st.session_state.sabit_listeler = bulut_listelerini_yukle()
 
 if "temp_preview" not in st.session_state:
     st.session_state.temp_preview = {"url": "", "title": "", "description": "", "image": None}
@@ -104,7 +122,6 @@ if os.path.exists("logo.jpg"):
 st.sidebar.title("🗂️ Yönetim Paneli")
 ana_sekme = st.sidebar.radio("Giriş / Rapor Seçimi:", ["📝 Günlük Veri Girişi", "📊 Rapor ve Çıktı Merkezi"])
 
-# Güvenli Çıkış Butonu
 if st.sidebar.button("🚪 Sistemden Güvenli Çıkış"):
     st.session_state.logged_in = False
     st.rerun()
@@ -115,40 +132,48 @@ if ana_sekme == "📝 Günlük Veri Girişi":
     kayit_turu = st.sidebar.radio("Tür Seçin:", ["👤 Kişiler / Kuruluşlar", "🌐 Web Siteleri"])
 
     if "👤 Kişiler / Kuruluşlar" in kayit_turu:
-        secilen_kayit = st.sidebar.selectbox("Kişi/Kurum Seçin:", st.session_state.kisiler)
+        secilen_kayit = st.sidebar.selectbox("Kişi/Kurum Seçin:", st.session_state.sabit_listeler["kisiler"])
         yeni_isim = st.sidebar.text_input("✏️ Seçili İsmi Değiştir:", value=secilen_kayit)
         if st.sidebar.button("🔄 İsmi Güncelle"):
             if yeni_isim and yeni_isim != secilen_kayit:
-                idx = st.session_state.kisiler.index(secilen_kayit)
-                st.session_state.kisiler[idx] = yeni_isim
+                idx = st.session_state.sabit_listeler["kisiler"].index(secilen_kayit)
+                st.session_state.sabit_listeler["kisiler"][idx] = yeni_isim
+                bulut_listelerini_kaydet(st.session_state.sabit_listeler)
+                
                 for entry in st.session_state.veri_tabani:
                     if entry.get("Kayıt Adı") == secilen_kayit and entry.get("Tür") == "Kişi/Kurum":
                         entry["Kayıt Adı"] = yeni_isim
                 canlı_veritabanı_kaydet(st.session_state.veri_tabani)
-                st.success("İsim Google Sheets üzerinde güncellendi!")
+                st.success("İsim Google Sheets'te güncellendi!")
                 st.rerun()
+                
         yeni_kisi = st.sidebar.text_input("➕ Yeni Kişi/Kurum Ekle:")
         if st.sidebar.button("Kişiyi Ekle"):
-            if yeni_kisi and yeni_kisi not in st.session_state.kisiler:
-                st.session_state.kisiler.append(yeni_kisi)
+            if yeni_kisi and yeni_kisi not in st.session_state.sabit_listeler["kisiler"]:
+                st.session_state.sabit_listeler["kisiler"].append(yeni_kisi)
+                bulut_listelerini_kaydet(st.session_state.sabit_listeler)
                 st.rerun()
     else:
-        secilen_kayit = st.sidebar.selectbox("Web Sitesi Seçin:", st.session_state.web_siteleri)
+        secilen_kayit = st.sidebar.selectbox("Web Sitesi Seçin:", st.session_state.sabit_listeler["web_siteleri"])
         yeni_site_ismi = st.sidebar.text_input("✏️ Seçili Site İsmini Değiştir:", value=secilen_kayit)
         if st.sidebar.button("🔄 Site İsmini Güncelle"):
             if yeni_site_ismi and yeni_site_ismi != secilen_kayit:
-                idx = st.session_state.web_siteleri.index(secilen_kayit)
-                st.session_state.web_siteleri[idx] = yeni_site_ismi
+                idx = st.session_state.sabit_listeler["web_siteleri"].index(secilen_kayit)
+                st.session_state.sabit_listeler["web_siteleri"][idx] = yeni_site_ismi
+                bulut_listelerini_kaydet(st.session_state.sabit_listeler)
+                
                 for entry in st.session_state.veri_tabani:
                     if entry.get("Kayıt Adı") == secilen_kayit and entry.get("Tür") == "Web Sitesi":
                         entry["Kayıt Adı"] = yeni_site_ismi
                 canlı_veritabanı_kaydet(st.session_state.veri_tabani)
-                st.success("Site ismi Google Sheets üzerinde güncellendi!")
+                st.success("Site ismi Google Sheets'te güncellendi!")
                 st.rerun()
+                
         yeni_site = st.sidebar.text_input("➕ Yeni Web Sitesi Ekle:")
         if st.sidebar.button("Siteyi Ekle"):
-            if yeni_site and yeni_site not in st.session_state.web_siteleri:
-                st.session_state.web_siteleri.append(yeni_site)
+            if yeni_site and yeni_site not in st.session_state.sabit_listeler["web_siteleri"]:
+                st.session_state.sabit_listeler["web_siteleri"].append(yeni_site)
+                bulut_listelerini_kaydet(st.session_state.sabit_listeler)
                 st.rerun()
 
 # ==========================================
@@ -296,4 +321,4 @@ elif ana_sekme == "📊 Rapor ve Çıktı Merkezi":
             use_container_width=True
         )
     else:
-        st.info(f"{rapor_ay} ayına ait henüz bulutta kaydedilmiş bir veri bulunamadı.")
+        st.info(f"{row_ay} ayına ait henüz bulutta kaydedilmiş bir veri bulunamadı.")
