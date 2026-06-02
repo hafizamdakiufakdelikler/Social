@@ -219,7 +219,6 @@ if ana_sekme == "📝 Günlük Veri Girişi":
         with col_url:
             g_url = st.text_input("Post URL Linki (Yeni):", value="")
             
-        # YENİ EKLENEN SÜTUNLAR (BEĞENİ, YORUM, ETİKET)
         col_b, col_y, col_e = st.columns([1, 1, 2])
         with col_b:
             g_begeni = st.number_input("❤️ Beğeni Sayısı:", min_value=0, step=1)
@@ -264,6 +263,13 @@ if ana_sekme == "📝 Günlük Veri Girişi":
 
     st.markdown("---")
     if st.button("💾 Bu Gönderiyi Google Sheets Bulutuna Kaydet", use_container_width=True):
+        # MÜKERRER KAYIT KONTROLÜ
+        if g_url and g_url != "-":
+            kayitli_mi = any(kayit.get("url") == g_url for kayit in st.session_state.veri_tabani)
+            if kayitli_mi:
+                st.error("⚠️ DİKKAT: Bu URL zaten sistemde kayıtlı! Lütfen farklı bir gönderi linki girin.")
+                st.stop() # Aynıysa kaydetmeyi durdur
+                
         yeni_kayit = {
             "Ay": secilen_ay, "Tarih": secilen_gun, "Kayıt Adı": secilen_kayit, 
             "Tür": "Kişi/Kurum" if "👤" in kayit_turu else "Web Sitesi",
@@ -310,7 +316,6 @@ elif ana_sekme == "📊 Rapor ve Çıktı Merkezi":
         df_rapor = pd.DataFrame(rapor_listesi)
         df_rapor = df_rapor.sort_values(by="Tarih")
         
-        # --- İSTATİSTİKLER VE GRAFİKLER BÖLÜMÜ ---
         st.markdown("---")
         st.subheader(f"📈 {rapor_ay} Ayı Performans Özeti")
         
@@ -331,7 +336,6 @@ elif ana_sekme == "📊 Rapor ve Çıktı Merkezi":
         else:
             st.info("Bu ay için sosyal medya platformu verisi bulunmuyor.")
         
-        # --- TABLO VE İNDİRME BÖLÜMÜ ---
         st.markdown("---")
         st.subheader(f"📋 {rapor_ay} Ayı Detaylı Kayıt Tablosu")
         st.dataframe(df_rapor, use_container_width=True, hide_index=True)
