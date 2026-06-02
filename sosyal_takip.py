@@ -44,7 +44,6 @@ except Exception as e:
     st.error("Google Sheets bağlantısı kurulamadı. Lütfen bulut panelindeki Secrets (Sırlar) ayarlarınızı kontrol edin.")
     st.stop()
 
-# Gönderileri Yükleme ve Kaydetme
 def canlı_veritabanı_yukle():
     try:
         df = conn.read(worksheet="Veritabanı", ttl=0)
@@ -59,11 +58,11 @@ def canlı_veritabanı_kaydet(data_list):
     else:
         df = pd.DataFrame(columns=[
             "Ay", "Tarih", "Kayıt Adı", "Tür", "platform", 
-            "url", "baslik", "aciklama", "web_haber", "web_duyuru", "web_not", "genel_not"
+            "url", "baslik", "aciklama", "begeni", "yorum", "etiketler",
+            "web_haber", "web_duyuru", "web_not", "genel_not"
         ])
     conn.update(worksheet="Veritabanı", data=df)
 
-# İsim Listelerini Google Sheets'ten Okuma ve Kaydetme (Sıfırlanmayı Önler)
 def bulut_listelerini_yukle():
     try:
         df = conn.read(worksheet="Ayarlar", ttl=0)
@@ -88,7 +87,6 @@ def bulut_listelerini_kaydet(lists):
     })
     conn.update(worksheet="Ayarlar", data=df)
 
-# Canlı Verileri Çek
 st.session_state.veri_tabani = canlı_veritabanı_yukle()
 st.session_state.sabit_listeler = bulut_listelerini_yukle()
 
@@ -202,11 +200,11 @@ if ana_sekme == "📝 Günlük Veri Girişi":
                 col_rec_text, col_rec_del = st.columns([5, 1])
                 with col_rec_text:
                     if mk.get("Tür") == "Kişi/Kurum":
-                        st.write(f"**{idx+1}. [{mk.get('platform')}]** {mk.get('url')[:60]}... | *{mk.get('baslik')}*")
+                        st.write(f"**{idx+1}. [{mk.get('platform')}]** ❤️ {mk.get('begeni', 0)} | 💬 {mk.get('yorum', 0)} | {mk.get('url')[:40]}...")
                     else:
-                        st.write(f"**{idx+1}. [Web Sitesi]** Haber: {mk.get('web_haber')[:30]}... | Duyuru: {mk.get('web_duyuru')[:30]}...")
+                        st.write(f"**{idx+1}. [Web Sitesi]** Haber: {mk.get('web_haber')[:30]}...")
                 with col_rec_del:
-                    if st.button("🗑️ Sil", key=f"del_{idx}_{mk.get('url')[:10]}"):
+                    if st.button("🗑️ Sil", key=f"del_{idx}_{mk.get('url', '')[:10]}"):
                         st.session_state.veri_tabani.remove(mk)
                         canlı_veritabanı_kaydet(st.session_state.veri_tabani)
                         st.success("Kayıt buluttan silindi!")
@@ -220,6 +218,15 @@ if ana_sekme == "📝 Günlük Veri Girişi":
             g_platform = st.selectbox("Platform:", platform_listesi)
         with col_url:
             g_url = st.text_input("Post URL Linki (Yeni):", value="")
+            
+        # YENİ EKLENEN SÜTUNLAR (BEĞENİ, YORUM, ETİKET)
+        col_b, col_y, col_e = st.columns([1, 1, 2])
+        with col_b:
+            g_begeni = st.number_input("❤️ Beğeni Sayısı:", min_value=0, step=1)
+        with col_y:
+            g_yorum = st.number_input("💬 Yorum Sayısı:", min_value=0, step=1)
+        with col_e:
+            g_etiketler = st.text_input("🏷️ Kullanılan Etiketler (Hashtags):")
         
         if g_url and g_url != st.session_state.temp_preview["url"]:
             with st.spinner("Link analiz ediliyor..."):
@@ -250,16 +257,10 @@ if ana_sekme == "📝 Günlük Veri Girişi":
             g_web_duyuru = st.text_area("📢 Duyurular:", height=120)
         with col_n:
             g_web_not = st.text_area("📝 Özel Notlar:", height=120)
-        g_platform, g_url = "-", "-"
+        g_platform, g_url, g_begeni, g_yorum, g_etiketler = "-", "-", 0, 0, "-"
 
     st.markdown("---")
-    col_not, col_foto = st.columns([1, 2])
-    with col_not:
-        g_genel_not = st.text_area("Eklemek istediğiniz genel not:", height=150)
-    with col_foto:
-        yuklenen_dosyalar = st.file_uploader("En fazla 6 adet fotoğraf sürükleyin:", type=["png", "jpg", "jpeg"], accept_multiple_files=True)
-        if yuklenen_dosyalar and len(yuklenen_dosyalar) > 6:
-            st.error("Maksimum 6 fotoğraf yükleyebilirsiniz!")
+    g_genel_not = st.text_area("📌 Bu gönderi için eklemek istediğiniz genel notlar:", height=100)
 
     st.markdown("---")
     if st.button("💾 Bu Gönderiyi Google Sheets Bulutuna Kaydet", use_container_width=True):
@@ -269,6 +270,7 @@ if ana_sekme == "📝 Günlük Veri Girişi":
             "platform": g_platform, "url": g_url, 
             "baslik": st.session_state.temp_preview["title"] if "👤" in kayit_turu else "-", 
             "aciklama": st.session_state.temp_preview["description"] if "👤" in kayit_turu else "-",
+            "begeni": g_begeni, "yorum": g_yorum, "etiketler": g_etiketler,
             "web_haber": g_web_haber, "web_duyuru": g_web_duyuru, "web_not": g_web_not, 
             "genel_not": g_genel_not
         }
@@ -295,6 +297,9 @@ elif ana_sekme == "📊 Rapor ve Çıktı Merkezi":
                 "Sosyal Medya Platform": deger.get("platform"),
                 "Post URL": deger.get("url"),
                 "Çekilen Başlık": deger.get("baslik"),
+                "Beğeni": pd.to_numeric(deger.get("begeni"), errors='coerce') if "begeni" in deger else 0,
+                "Yorum": pd.to_numeric(deger.get("yorum"), errors='coerce') if "yorum" in deger else 0,
+                "Etiketler": deger.get("etiketler", ""),
                 "Web - Haber": deger.get("web_haber"),
                 "Web - Duyuru": deger.get("web_duyuru"),
                 "Web - Not": deger.get("web_not"),
@@ -305,7 +310,30 @@ elif ana_sekme == "📊 Rapor ve Çıktı Merkezi":
         df_rapor = pd.DataFrame(rapor_listesi)
         df_rapor = df_rapor.sort_values(by="Tarih")
         
-        st.subheader(f"📈 {rapor_ay} Ayı Toplu Bulut Raporu ({len(df_rapor)} Gönderi Arşivlendi)")
+        # --- İSTATİSTİKLER VE GRAFİKLER BÖLÜMÜ ---
+        st.markdown("---")
+        st.subheader(f"📈 {rapor_ay} Ayı Performans Özeti")
+        
+        col_m1, col_m2, col_m3 = st.columns(3)
+        toplam_gonderi = len(df_rapor)
+        toplam_begeni = int(df_rapor["Beğeni"].sum())
+        toplam_yorum = int(df_rapor["Yorum"].sum())
+        
+        col_m1.metric("Toplam İçerik Sayısı", toplam_gonderi)
+        col_m2.metric("Toplam Beğeni Sayısı", toplam_begeni)
+        col_m3.metric("Toplam Yorum Sayısı", toplam_yorum)
+        
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.write("**Platformlara Göre İçerik Dağılım Grafiği**")
+        platform_counts = df_rapor[df_rapor["Tür"] == "Kişi/Kurum"]["Sosyal Medya Platform"].value_counts()
+        if not platform_counts.empty:
+            st.bar_chart(platform_counts)
+        else:
+            st.info("Bu ay için sosyal medya platformu verisi bulunmuyor.")
+        
+        # --- TABLO VE İNDİRME BÖLÜMÜ ---
+        st.markdown("---")
+        st.subheader(f"📋 {rapor_ay} Ayı Detaylı Kayıt Tablosu")
         st.dataframe(df_rapor, use_container_width=True, hide_index=True)
         
         buffer = io.BytesIO()
@@ -321,4 +349,4 @@ elif ana_sekme == "📊 Rapor ve Çıktı Merkezi":
             use_container_width=True
         )
     else:
-        st.info(f"{row_ay} ayına ait henüz bulutta kaydedilmiş bir veri bulunamadı.")
+        st.info(f"{rapor_ay} ayına ait henüz bulutta kaydedilmiş bir veri bulunamadı.")
