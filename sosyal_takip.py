@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import requests
 from bs4 import BeautifulSoup
-from datetime import datetime, timedelta
+from datetime import datetime
 import io
 import os
 import re
@@ -60,7 +60,7 @@ def canlı_veritabanı_kaydet(data_list):
     else:
         df = pd.DataFrame(columns=[
             "Ay", "Tarih", "Kayıt Adı", "Tür", "platform", 
-            "url", "baslik", "aciklama", "begeni", "yorum", "etiketler",
+            "url", "baslik", "aciklama", "etiketler",
             "web_haber", "web_duyuru", "web_not", "genel_not"
         ])
     conn.update(worksheet="Veritabanı", data=df)
@@ -94,6 +94,7 @@ if "temp_preview" not in st.session_state:
     st.session_state.temp_preview = {"url": "", "title": "", "description": "", "image": None, "tags": ""}
 
 platform_listesi = ["Instagram", "YouTube", "LinkedIn", "X", "Nsosyal", "Facebook"]
+aylar_sabit = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"]
 
 # ==========================================
 # AKILLI METİN VE ETİKET ANALİZ MOTORU
@@ -109,15 +110,30 @@ def otomatik_etiket_uret(metin):
 
 def get_link_preview(url):
     try:
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
-        response = requests.get(url, headers=headers, timeout=5)
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36'}
+        
+        scrape_url = url
+        if "x.com" in scrape_url or "twitter.com" in scrape_url:
+            scrape_url = scrape_url.replace("x.com", "vxtwitter.com").replace("twitter.com", "vxtwitter.com")
+            
+        response = requests.get(scrape_url, headers=headers, timeout=8)
         soup = BeautifulSoup(response.content, 'html.parser')
+        
         og_title = soup.find("meta", property="og:title")
         og_desc = soup.find("meta", property="og:description")
         og_image = soup.find("meta", property="og:image")
         
-        baslik = og_title["content"] if og_title else "Başlık bulunamadı"
-        aciklama = og_desc["content"] if og_desc else "Açıklama bulunamadı"
+        if not og_title:
+            fallback_title = soup.find("title")
+            baslik = fallback_title.text.strip() if fallback_title else "Başlık bulunamadı"
+        else:
+            baslik = og_title["content"]
+            
+        if not og_desc:
+            fallback_desc = soup.find("meta", attrs={"name": "description"})
+            aciklama = fallback_desc["content"] if fallback_desc else "Açıklama bulunamadı"
+        else:
+            aciklama = og_desc["content"]
         
         oto_etiket = otomatik_etiket_uret(baslik + " " + aciklama)
         
@@ -192,25 +208,20 @@ if ana_sekme == "📝 Günlük Veri Girişi":
 # ==========================================
 # ANA EKRAN - VERI GIRISI
 # ==========================================
-aylar = ["Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"]
-
 if ana_sekme == "📝 Günlük Veri Girişi":
     st.title("🚀 Medya ve İçerik Yönetim Paneli")
     
-    col_ay, col_gun = st.columns(2)
-    with col_ay:
-        secilen_ay = st.selectbox("📅 Ay Seçin:", aylar)
-    with col_gun:
-        gun_sayisi = 31 if secilen_ay in ["Temmuz", "Ağustos", "Ekim", "Aralık"] else 30
-        gunler = [f"{str(i).zfill(2)} {secilen_ay}" for i in range(1, gun_sayisi + 1)]
-        secilen_gun = st.selectbox("📆 Gün Seçin:", gunler)
+    secilen_tarih = st.date_input("📅 Kayıt Tarihi (Otomatik olarak bugünü gösterir, isterseniz geçmişi seçebilirsiniz):", datetime.today())
+    
+    secilen_ay = aylar_sabit[secilen_tarih.month - 1]
+    secilen_gun = f"{str(secilen_tarih.day).zfill(2)} {secilen_ay}"
 
     st.markdown("---")
     st.header(f"📝 Veri Girişi: {secilen_kayit} ({secilen_gun})")
 
     mevcut_kayitlar = [x for x in st.session_state.veri_tabani if x.get("Tarih") == secilen_gun and x.get("Kayıt Adı") == secilen_kayit]
     if mevcut_kayitlar:
-        with st.expander(f"📋 Bugün Bu Kayda Eklenen Mevcut Gönderiler ({len(mevcut_kayitlar)} Adet)", expanded=True):
+        with st.expander(f"📋 Seçili Güne Eklenen Mevcut Gönderiler ({len(mevcut_kayitlar)} Adet)", expanded=True):
             for idx, mk in enumerate(mevcut_kayitlar):
                 col_rec_text, col_rec_del = st.columns([7, 1])
                 with col_rec_text:
@@ -218,7 +229,7 @@ if ana_sekme == "📝 Günlük Veri Girişi":
                     if baslik == "-" or not baslik: baslik = "Başlık Bulunamadı"
                     
                     if mk.get("Tür") == "Kişi/Kurum":
-                        st.write(f"**{idx+1}. [{mk.get('platform')}]** ❤️ {mk.get('begeni', 0)} | 💬 {mk.get('yorum', 0)} | *{baslik}*")
+                        st.write(f"**{idx+1}. [{mk.get('platform')}]** *{baslik}*")
                     else:
                         st.write(f"**{idx+1}. [Haber/Duyuru]** 📰 *{baslik[:80]}...* | 🏷️ {mk.get('etiketler', '-')}")
                 with col_rec_del:
@@ -262,13 +273,7 @@ if ana_sekme == "📝 Günlük Veri Girişi":
             st.write(st.session_state.temp_preview["description"])
 
     if "👤" in kayit_turu:
-        col_b, col_y, col_e = st.columns([1, 1, 2])
-        with col_b:
-            g_begeni = st.number_input("❤️ Beğeni Sayısı:", min_value=0, step=1)
-        with col_y:
-            g_yorum = st.number_input("💬 Yorum Sayısı:", min_value=0, step=1)
-        with col_e:
-            g_etiketler = st.text_input("🏷️ Kullanılan Etiketler (Otomatik Üretildi):", value=st.session_state.temp_preview["tags"])
+        g_etiketler = st.text_input("🏷️ Kullanılan Etiketler (Otomatik Üretildi):", value=st.session_state.temp_preview["tags"])
         g_web_haber, g_web_duyuru, g_web_not = "-", "-", "-"
     else:
         col_e, col_n = st.columns(2)
@@ -277,7 +282,6 @@ if ana_sekme == "📝 Günlük Veri Girişi":
         with col_n:
             g_web_not = st.text_area("📝 Haberle İlgili Özel Notunuz:", height=68)
         
-        g_begeni, g_yorum = 0, 0
         g_web_haber = st.session_state.temp_preview["description"]
         g_web_duyuru = "-"
 
@@ -299,7 +303,7 @@ if ana_sekme == "📝 Günlük Veri Girişi":
             "platform": g_platform, "url": g_url.strip(), 
             "baslik": st.session_state.temp_preview["title"], 
             "aciklama": st.session_state.temp_preview["description"],
-            "begeni": g_begeni, "yorum": g_yorum, "etiketler": g_etiketler,
+            "etiketler": g_etiketler,
             "web_haber": g_web_haber, "web_duyuru": g_web_duyuru, "web_not": g_web_not, 
             "genel_not": g_genel_not
         }
@@ -318,13 +322,8 @@ elif ana_sekme == "⚡ Anlık Özet Panosu":
     
     if st.session_state.veri_tabani:
         df_all = pd.DataFrame(st.session_state.veri_tabani)
-        df_all["begeni"] = pd.to_numeric(df_all.get("begeni", 0), errors='coerce').fillna(0)
-        df_all["yorum"] = pd.to_numeric(df_all.get("yorum", 0), errors='coerce').fillna(0)
         
-        col_m1, col_m2, col_m3 = st.columns(3)
-        col_m1.metric("Toplam Arşivlenen İçerik", len(df_all))
-        col_m2.metric("Toplam Beğeni Havuzu", int(df_all["begeni"].sum()))
-        col_m3.metric("Toplam Yorum Etkileşimi", int(df_all["yorum"].sum()))
+        st.metric("Toplam Arşivlenen İçerik", len(df_all))
         
         st.markdown("---")
         col_grafik, col_son_eklenen = st.columns([1, 2])
@@ -343,14 +342,10 @@ elif ana_sekme == "⚡ Anlık Özet Panosu":
             son_5 = son_5.rename(columns={"baslik": "Başlık / İçerik"})
             st.dataframe(son_5, use_container_width=True, hide_index=True)
 
-        # ----------------------------------------------------
-        # YENİ: GÜNLÜK TOPLU LİNK PAYLAŞIM MODÜLÜ
-        # ----------------------------------------------------
         st.markdown("---")
-        st.subheader("📤 Günlük Toplu Link Paylaşım Modülü (WhatsApp/Email Uyumlu)")
+        st.subheader("📤 Günlük Toplu Link Paylaşım Modülü")
         st.write("Yöneticilerinize veya müşterilerinize o günkü tüm haberleri tek bir mesaj olarak göndermek için kullanabilirsiniz.")
         
-        # Veritabanında kayıtlı olan benzersiz tarihleri listele
         mevcut_tarihler = sorted(df_all["Tarih"].dropna().unique().tolist(), reverse=True)
         
         if mevcut_tarihler:
@@ -358,7 +353,6 @@ elif ana_sekme == "⚡ Anlık Özet Panosu":
             gunluk_veriler = df_all[df_all["Tarih"] == secilen_paylasim_tarihi]
             
             if not gunluk_veriler.empty:
-                # WhatsApp formatına uygun metni oluştur
                 mesaj_metni = f"📅 *{secilen_paylasim_tarihi} - Günlük Medya ve Haber Takip Raporu:*\n\n"
                 
                 for i, row in enumerate(gunluk_veriler.to_dict('records')):
@@ -383,7 +377,9 @@ elif ana_sekme == "⚡ Anlık Özet Panosu":
 # ==========================================
 elif ana_sekme == "📊 Aylık Rapor Merkezi":
     st.title("📊 Aylık Raporlama ve Çıktı Merkezi")
-    rapor_ay = st.selectbox("🔍 Raporunu Görmek İstediğiniz Ayı Seçin:", aylar)
+    
+    aylar_sabit_isimler = ["Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"]
+    rapor_ay = st.selectbox("🔍 Raporunu Görmek İstediğiniz Ayı Seçin:", aylar_sabit_isimler)
     
     rapor_listesi = []
     for deger in st.session_state.veri_tabani:
@@ -395,8 +391,6 @@ elif ana_sekme == "📊 Aylık Rapor Merkezi":
                 "Sosyal Medya Platform": deger.get("platform"),
                 "Post URL": deger.get("url"),
                 "Çekilen Başlık": deger.get("baslik"),
-                "Beğeni": pd.to_numeric(deger.get("begeni"), errors='coerce') if "begeni" in deger else 0,
-                "Yorum": pd.to_numeric(deger.get("yorum"), errors='coerce') if "yorum" in deger else 0,
                 "Etiketler": deger.get("etiketler", ""),
                 "Web - Haber": deger.get("web_haber"),
                 "Genel Not": deger.get("genel_not")
