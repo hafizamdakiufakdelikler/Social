@@ -9,10 +9,11 @@ import re
 from collections import Counter
 from streamlit_gsheets import GSheetsConnection
 
-st.set_page_config(page_title="RH+ Sosyal Medya Yönetim Paneli", layout="wide", page_icon="🚀")
+# Sayfa ayarlarını en başta tanımlıyoruz
+st.set_page_config(page_title="RH+ Yönetim Paneli", layout="wide", page_icon="🚀")
 
 # ==========================================
-# 🔒 GİRİŞ SİSTEMİ VE GÜVENLİK AYARI
+# 🔒 GİRİŞ SİSTEMİ (MODERN VE MOBİL UYUMLU)
 # ==========================================
 GIRIS_SIFRESI = "RHplus2026*"
 
@@ -20,20 +21,35 @@ if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
 
 if not st.session_state.logged_in:
-    col_l, col_m, col_r = st.columns([1, 2, 1])
-    with col_m:
-        st.markdown("<br><br>", unsafe_allow_html=True)
-        if os.path.exists("logo.jpg"):
-            st.image("logo.jpg", use_container_width=True)
-        st.title("🔒 Kurumsal Yönetim Paneli")
-        st.subheader("RH+ Reklam Film Tasarım")
-        sifre_giris = st.text_input("Lütfen erişim şifresini giriniz:", type="password")
-        if st.button("Sisteme Giriş Yap", use_container_width=True):
-            if sifre_giris == GIRIS_SIFRESI:
-                st.session_state.logged_in = True
-                st.rerun()
+    # Mobilde ve Web'de ortalanmış şık bir görünüm için kolonları kullanıyoruz
+    col1, col2, col3 = st.columns([1, 1.2, 1])
+    
+    with col2:
+        st.markdown("<br><br><br>", unsafe_allow_html=True)
+        
+        # Şık bir kart görünümü için container kullanıyoruz
+        with st.container(border=True):
+            if os.path.exists("logo.jpg"):
+                st.image("logo.jpg", use_container_width=True)
             else:
-                st.error("Hatalı şifre! Lütfen tekrar deneyin.")
+                st.markdown("<h1 style='text-align: center;'>RH+ Reklam Film</h1>", unsafe_allow_html=True)
+            
+            st.markdown("<h3 style='text-align: center; color: gray;'>Yönetim Paneli Girişi</h3>", unsafe_allow_html=True)
+            st.markdown("<br>", unsafe_allow_html=True)
+            
+            sifre_giris = st.text_input("Erişim Şifresi:", type="password", placeholder="Şifrenizi giriniz...", label_visibility="collapsed")
+            
+            if st.button("Sisteme Giriş Yap", use_container_width=True, type="primary"):
+                if sifre_giris == GIRIS_SIFRESI:
+                    st.session_state.logged_in = True
+                    st.rerun()
+                else:
+                    st.error("⚠️ Hatalı şifre! Lütfen tekrar deneyin.")
+        
+        # Karanlık mod ipucu
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.info("💡 **Aydınlık/Karanlık Tema:** Sağ üst köşedeki üç noktaya (⋮) tıklayıp **Settings > Theme** menüsünden temanızı değiştirebilirsiniz.")
+    
     st.stop()
 
 # ==========================================
@@ -101,7 +117,7 @@ def otomatik_etiket_uret(metin):
     if not metin or metin.strip() == "": return ""
     metin = metin.lower()
     kelimeler = re.findall(r'\b[a-zçğıöşü]{4,}\b', metin)
-    stop_words = ["için", "göre", "tarafından", "hakkında", "ile", "veya", "olan", "olarak", "daha", "gibi", "kadar", "sonra", "önce", "üzere", "birlikte"]
+    stop_words = ["için", "göre", "tarafından", "hakkında", "ile", "veya", "olan", "olarak", "daha", "gibi", "kadar", "sonra", "önce", "üzere", "birlikte", "dair", "yeni"]
     temiz_kelimeler = [k for k in kelimeler if k not in stop_words]
     en_cok_gecenler = [k[0] for k in Counter(temiz_kelimeler).most_common(4)]
     return ", ".join(en_cok_gecenler).title()
@@ -118,27 +134,7 @@ def get_link_preview(url):
     elif "nsosyal" in url_lower: detected_platform = "Nsosyal"
 
     try:
-        if detected_platform == "X":
-            api_url = url.replace("x.com", "api.vxtwitter.com").replace("twitter.com", "api.vxtwitter.com").split("?")[0]
-            try:
-                res = requests.get(api_url, timeout=5).json()
-            except:
-                api_url = url.replace("x.com", "api.fxtwitter.com").replace("twitter.com", "api.fxtwitter.com").split("?")[0]
-                res = requests.get(api_url, timeout=5).json()
-                
-            baslik = f"@{res.get('user_screen_name', 'Kullanıcı')} (X Gönderisi)"
-            aciklama = res.get('text', 'İçerik okunamadı.')
-            
-            image_url = None
-            if res.get('media_extended') and len(res['media_extended']) > 0:
-                image_url = res['media_extended'][0].get('url')
-            elif res.get('mediaURLs') and len(res['mediaURLs']) > 0:
-                image_url = res['mediaURLs'][0]
-                
-            oto_etiket = otomatik_etiket_uret(aciklama)
-            return {"title": baslik, "description": aciklama, "image": image_url, "tags": oto_etiket, "platform": "X"}
-
-        # Diğer Siteler
+        # Standart okuma denemesi
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
         response = requests.get(url, headers=headers, timeout=5)
         soup = BeautifulSoup(response.content, 'html.parser')
@@ -147,33 +143,23 @@ def get_link_preview(url):
         og_desc = soup.find("meta", property="og:description")
         og_image = soup.find("meta", property="og:image")
         
-        if not og_title:
-            fallback_title = soup.find("title")
-            baslik = fallback_title.text.strip() if fallback_title else "Başlık Bulunamadı"
-        else:
-            baslik = og_title["content"]
-            
-        if not og_desc:
-            fallback_desc = soup.find("meta", attrs={"name": "description"})
-            aciklama = fallback_desc["content"] if fallback_desc else "Açıklama Bulunamadı"
-        else:
-            aciklama = og_desc["content"]
-        
-        oto_etiket = otomatik_etiket_uret(baslik + " " + aciklama)
+        baslik = og_title["content"] if og_title else "Başlık Bulunamadı"
+        aciklama = og_desc["content"] if og_desc else "İçerik çekilemedi."
+        image_url = og_image["content"] if og_image else None
         
         return {
             "title": baslik,
             "description": aciklama,
-            "image": og_image["content"] if og_image else None,
-            "tags": oto_etiket,
+            "image": image_url,
+            "tags": otomatik_etiket_uret(baslik + " " + aciklama),
             "platform": detected_platform
         }
         
     except Exception:
-        # ÇÖKME DURUMUNDA NİHAİ GÜVENLİK AĞI (Platform Asla Kaybedilmez)
+        # Engellenirse çökme, boş döndür (Kullanıcı manuel girecek)
         return {
             "title": "İçerik Otomatik Çekilemedi",
-            "description": "Gizlilik ayarları veya bulut engeli nedeniyle içerik okunamadı. Ancak platform doğru tespit edildi ve link başarıyla kaydedilecek.",
+            "description": "Gizlilik ayarları nedeniyle içerik okunamadı. Lütfen metni aşağıdaki kutuya manuel yapıştırın.",
             "image": None,
             "tags": "",
             "platform": detected_platform
@@ -250,9 +236,8 @@ if st.sidebar.button("🚪 Güvenli Çıkış", use_container_width=True):
 # ==========================================
 if ana_sekme == "📝 Günlük Veri Girişi":
     st.title("🚀 Medya ve İçerik Yönetim Paneli")
-    st.markdown("Verilerinizi hızlı ve düzenli bir şekilde doğrudan bulut sisteminize kaydedin.")
     
-    secilen_tarih = st.date_input("📅 Kayıt Tarihi", datetime.today(), help="Sistem varsayılan olarak bugünü seçer. Geçmişteki bir gün için veri girmek istiyorsanız takvimden tarihi değiştirebilirsiniz.")
+    secilen_tarih = st.date_input("📅 Kayıt Tarihi", datetime.today())
     secilen_ay = aylar_sabit[secilen_tarih.month - 1]
     secilen_gun = f"{str(secilen_tarih.day).zfill(2)} {secilen_ay}"
 
@@ -265,7 +250,7 @@ if ana_sekme == "📝 Günlük Veri Girişi":
         st.header(f"📝 {secilen_kayit}")
         st.caption(f"İşlem yapılan tarih: **{secilen_gun}**")
     with col_sayac:
-        st.metric(label="Bugün Girilen İçerik", value=len(mevcut_kayitlar), help="Seçtiğiniz tarihte bu kişi/kurum için girilen toplam veri sayısı.")
+        st.metric(label="Bugün Girilen İçerik", value=len(mevcut_kayitlar))
 
     if mevcut_kayitlar:
         with st.expander(f"📋 Bu Kayda Eklenen Mevcut Gönderiler ({len(mevcut_kayitlar)} Adet)", expanded=True):
@@ -280,19 +265,21 @@ if ana_sekme == "📝 Günlük Veri Girişi":
                     else:
                         st.markdown(f"**{idx+1}. [Haber/Duyuru]** 📰 *{baslik[:80]}...* | 🏷️ {mk.get('etiketler', '-')}")
                 with col_rec_del:
-                    if st.button("🗑️ Sil", key=f"del_{idx}_{mk.get('url', '')[:10]}", help="Bu kaydı veritabanından kalıcı olarak siler."):
+                    if st.button("🗑️ Sil", key=f"del_{idx}_{mk.get('url', '')[:10]}"):
                         st.session_state.veri_tabani.remove(mk)
                         canlı_veritabanı_kaydet(st.session_state.veri_tabani)
                         st.toast("Kayıt sistemden silindi.", icon="🗑️")
                         st.rerun()
 
     st.markdown("### ➕ Yeni İçerik Ekle")
-    st.info("💡 Linki yapıştırdığınızda sistem platformu otomatik olarak tanır ve içeriği sizin için çeker.")
     
-    g_url = st.text_input("🔗 Haber veya Gönderi Linki:", value="", placeholder="https://...", help="İlgili habere veya gönderiye ait tam linki buraya yapıştırın.")
+    g_url = st.text_input("🔗 Haber veya Gönderi Linki:", value="", placeholder="https://...")
+    
+    # YENİ ÖZELLİK: MANUEL METİN GİRİŞİ
+    g_manuel_metin = st.text_area("✍️ Gönderi Metni / İçerik (İsteğe Bağlı):", placeholder="Eğer sistem X vb. sitelerde içeriği otomatik çekemezse, gönderinin metnini buraya yapıştırabilirsiniz.", height=100)
         
     if g_url and g_url != st.session_state.temp_preview["url"]:
-        with st.spinner("Yapay Zeka Devrede: Link Analiz Ediliyor..."):
+        with st.spinner("Link Analiz Ediliyor..."):
             preview = get_link_preview(g_url)
             st.session_state.temp_preview = {
                 "url": g_url, 
@@ -303,9 +290,15 @@ if ana_sekme == "📝 Günlük Veri Girişi":
                 "platform": preview["platform"]
             }
 
+    # Kullanıcı metin yapıştırırsa yapay zekayı yeniden tetikle
+    if g_manuel_metin:
+        st.session_state.temp_preview["description"] = g_manuel_metin
+        # Sadece girilen metne göre yeniden etiket üret
+        st.session_state.temp_preview["tags"] = otomatik_etiket_uret(g_manuel_metin)
+
     if st.session_state.temp_preview["title"] and g_url:
         with st.container(border=True):
-            st.markdown("#### 🤖 Otomatik Çekilen İçerik")
+            st.markdown("#### 🤖 Önizleme Kartı")
             col_img, col_txt = st.columns([1, 4])
             with col_img:
                 if st.session_state.temp_preview["image"]:
@@ -316,11 +309,11 @@ if ana_sekme == "📝 Günlük Veri Girişi":
                 if "👤" in kayit_turu:
                     st.markdown(f"**Tespit Edilen Platform:** `{st.session_state.temp_preview.get('platform', 'Hesaplanıyor...')}`")
                 st.subheader(st.session_state.temp_preview["title"])
-                st.caption(st.session_state.temp_preview["description"])
+                st.caption(st.session_state.temp_preview["description"][:200] + "..." if len(st.session_state.temp_preview["description"]) > 200 else st.session_state.temp_preview["description"])
 
     if "👤" in kayit_turu:
         g_platform = st.session_state.temp_preview.get("platform", "Diğer")
-        g_etiketler = st.text_input("🏷️ Etiketler (Otomatik Üretildi):", value=st.session_state.temp_preview["tags"], help="Yapay zeka tarafından haberden çıkarılan kelimeler. İsterseniz kendiniz de değiştirebilirsiniz.")
+        g_etiketler = st.text_input("🏷️ Etiketler (Yapay Zeka Destekli):", value=st.session_state.temp_preview["tags"])
         g_web_haber, g_web_duyuru, g_web_not = "-", "-", "-"
     else:
         g_platform = "Web Sitesi"
@@ -328,11 +321,11 @@ if ana_sekme == "📝 Günlük Veri Girişi":
         with col_e:
             g_etiketler = st.text_input("🏷️ Etiketler:", value=st.session_state.temp_preview["tags"])
         with col_n:
-            g_web_not = st.text_area("📝 Özel Notunuz:", height=68, placeholder="Haberin önemi veya iletilmek istenen not...")
+            g_web_not = st.text_area("📝 Özel Notunuz:", height=68)
         g_web_haber = st.session_state.temp_preview["description"]
         g_web_duyuru = "-"
 
-    g_genel_not = st.text_area("📌 Genel Not (İsteğe Bağlı):", height=68, placeholder="Raporlarda görünmesi için bu gönderiyle ilgili eklemek istediğiniz notlar...", help="Bu alan raporlama ekranında görünecektir.")
+    g_genel_not = st.text_area("📌 Genel Not (İsteğe Bağlı):", height=68, placeholder="Raporlarda görünmesi için notlarınız...")
 
     st.markdown("<br>", unsafe_allow_html=True)
     if st.button("💾 Kaydet ve Buluta Gönder", use_container_width=True, type="primary"):
@@ -343,11 +336,16 @@ if ana_sekme == "📝 Günlük Veri Girişi":
                 st.error("⚠️ DİKKAT: Bu URL zaten sistemde kayıtlı! Mükerrer kayıt engellendi.")
                 st.stop()
                 
+        # Eğer kullanıcı başlık bulunamadıysa manuel metnin ilk birkaç kelimesini başlık yapsın
+        nihai_baslik = st.session_state.temp_preview["title"]
+        if "Bulunamadı" in nihai_baslik and g_manuel_metin:
+            nihai_baslik = " ".join(g_manuel_metin.split()[:5]) + "..."
+                
         yeni_kayit = {
             "Ay": secilen_ay, "Tarih": secilen_gun, "Kayıt Adı": secilen_kayit, 
             "Tür": "Kişi/Kurum" if "👤" in kayit_turu else "Web Sitesi",
             "platform": g_platform, "url": g_url.strip(), 
-            "baslik": st.session_state.temp_preview["title"], 
+            "baslik": nihai_baslik, 
             "aciklama": st.session_state.temp_preview["description"],
             "etiketler": g_etiketler,
             "web_haber": g_web_haber, "web_duyuru": g_web_duyuru, "web_not": g_web_not, 
@@ -365,7 +363,6 @@ if ana_sekme == "📝 Günlük Veri Girişi":
 # ==========================================
 elif ana_sekme == "⚡ Anlık Özet Panosu":
     st.title("⚡ Kurumsal Performans Panosu")
-    st.markdown("Sistemdeki **tüm zamanlara ait** verilerin anlık analizini ve paylaşım modülünü burada bulabilirsiniz.")
     
     if st.session_state.veri_tabani:
         df_all = pd.DataFrame(st.session_state.veri_tabani)
@@ -393,7 +390,6 @@ elif ana_sekme == "⚡ Anlık Özet Panosu":
 
         st.markdown("---")
         st.subheader("📤 Günlük Toplu Link Paylaşım Modülü")
-        st.caption("Yöneticilerinize veya müşterilerinize o günkü haberleri tek mesajda göndermek için (WhatsApp/E-Posta) uygundur.")
         
         mevcut_tarihler = sorted(df_all["Tarih"].dropna().unique().tolist(), reverse=True)
         
@@ -415,7 +411,6 @@ elif ana_sekme == "⚡ Anlık Özet Panosu":
                     else:
                         mesaj_metni += f"*{i+1}. [Haber/Duyuru]* {baslik}\n🔗 {url}\n\n"
                 
-                st.success("💡 Siyah kutunun sağ üst köşesindeki 'Kopyala' butonuna basarak tüm listeyi alabilirsiniz.")
                 st.code(mesaj_metni, language="text")
                 
     else:
@@ -426,7 +421,6 @@ elif ana_sekme == "⚡ Anlık Özet Panosu":
 # ==========================================
 elif ana_sekme == "📊 Aylık Rapor Merkezi":
     st.title("📊 Aylık Raporlama ve Çıktı Merkezi")
-    st.markdown("Seçtiğiniz aya ait detaylı dökümleri görüntüleyin ve Excel olarak bilgisayarınıza indirin.")
     
     aylar_sabit_isimler = ["Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"]
     rapor_ay = st.selectbox("🔍 Raporunu İncelemek İstediğiniz Ayı Seçin:", aylar_sabit_isimler)
