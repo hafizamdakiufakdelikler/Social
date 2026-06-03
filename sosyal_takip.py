@@ -107,58 +107,77 @@ def otomatik_etiket_uret(metin):
     return ", ".join(en_cok_gecenler).title()
 
 def get_link_preview(url):
+    url_lower = url.lower()
+    detected_platform = "Web Sitesi"
+    
+    if "instagram.com" in url_lower: detected_platform = "Instagram"
+    elif "youtube.com" in url_lower or "youtu.be" in url_lower: detected_platform = "YouTube"
+    elif "linkedin.com" in url_lower: detected_platform = "LinkedIn"
+    elif "x.com" in url_lower or "twitter.com" in url_lower: detected_platform = "X"
+    elif "facebook.com" in url_lower: detected_platform = "Facebook"
+    elif "nsosyal" in url_lower: detected_platform = "Nsosyal"
+
     try:
-        url_lower = url.lower()
-        detected_platform = "Diğer"
-        if "instagram.com" in url_lower: detected_platform = "Instagram"
-        elif "youtube.com" in url_lower or "youtu.be" in url_lower: detected_platform = "YouTube"
-        elif "linkedin.com" in url_lower: detected_platform = "LinkedIn"
-        elif "x.com" in url_lower or "twitter.com" in url_lower: detected_platform = "X"
-        elif "facebook.com" in url_lower: detected_platform = "Facebook"
-        elif "nsosyal" in url_lower: detected_platform = "Nsosyal"
-
-        scrape_url = url
-        # X (Twitter) Bypass: FxTwitter Köprüsü Kullan (Sorunsuz HTML çeker)
         if detected_platform == "X":
-            scrape_url = url.split("?")[0].replace("x.com", "fxtwitter.com").replace("twitter.com", "fxtwitter.com")
+            api_url = url.replace("x.com", "api.vxtwitter.com").replace("twitter.com", "api.vxtwitter.com").split("?")[0]
+            try:
+                res = requests.get(api_url, timeout=5).json()
+            except:
+                api_url = url.replace("x.com", "api.fxtwitter.com").replace("twitter.com", "api.fxtwitter.com").split("?")[0]
+                res = requests.get(api_url, timeout=5).json()
+                
+            baslik = f"@{res.get('user_screen_name', 'Kullanıcı')} (X Gönderisi)"
+            aciklama = res.get('text', 'İçerik okunamadı.')
+            
+            image_url = None
+            if res.get('media_extended') and len(res['media_extended']) > 0:
+                image_url = res['media_extended'][0].get('url')
+            elif res.get('mediaURLs') and len(res['mediaURLs']) > 0:
+                image_url = res['mediaURLs'][0]
+                
+            oto_etiket = otomatik_etiket_uret(aciklama)
+            return {"title": baslik, "description": aciklama, "image": image_url, "tags": oto_etiket, "platform": "X"}
 
-        # Discord Bot Taklidi: X ve diğer siteler botlara önizleme vermek zorundadır.
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (compatible; Discordbot/2.0; +https://discordapp.com)'
-        }
-        
-        response = requests.get(scrape_url, headers=headers, timeout=10)
+        # Diğer Siteler
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+        response = requests.get(url, headers=headers, timeout=5)
         soup = BeautifulSoup(response.content, 'html.parser')
         
-        # Hem 'og:' hem de 'twitter:' meta etiketlerini ara
-        og_title = soup.find("meta", property="og:title") or soup.find("meta", attrs={"name": "twitter:title"})
-        og_desc = soup.find("meta", property="og:description") or soup.find("meta", attrs={"name": "twitter:description"})
-        og_image = soup.find("meta", property="og:image") or soup.find("meta", attrs={"name": "twitter:image"})
+        og_title = soup.find("meta", property="og:title")
+        og_desc = soup.find("meta", property="og:description")
+        og_image = soup.find("meta", property="og:image")
         
         if not og_title:
             fallback_title = soup.find("title")
             baslik = fallback_title.text.strip() if fallback_title else "Başlık Bulunamadı"
         else:
-            baslik = og_title.get("content", "Başlık Bulunamadı")
+            baslik = og_title["content"]
             
         if not og_desc:
             fallback_desc = soup.find("meta", attrs={"name": "description"})
-            aciklama = fallback_desc.get("content", "Açıklama Bulunamadı") if fallback_desc else "Açıklama Bulunamadı"
+            aciklama = fallback_desc["content"] if fallback_desc else "Açıklama Bulunamadı"
         else:
-            aciklama = og_desc.get("content", "Açıklama Bulunamadı")
+            aciklama = og_desc["content"]
         
         oto_etiket = otomatik_etiket_uret(baslik + " " + aciklama)
-        image_url = og_image.get("content") if og_image else None
         
         return {
             "title": baslik,
             "description": aciklama,
-            "image": image_url,
+            "image": og_image["content"] if og_image else None,
             "tags": oto_etiket,
             "platform": detected_platform
         }
-    except Exception as e:
-        return None
+        
+    except Exception:
+        # ÇÖKME DURUMUNDA NİHAİ GÜVENLİK AĞI (Platform Asla Kaybedilmez)
+        return {
+            "title": "İçerik Otomatik Çekilemedi",
+            "description": "Gizlilik ayarları veya bulut engeli nedeniyle içerik okunamadı. Ancak platform doğru tespit edildi ve link başarıyla kaydedilecek.",
+            "image": None,
+            "tags": "",
+            "platform": detected_platform
+        }
 
 # ==========================================
 # SOL MENÜ (SIDEBAR)
@@ -273,14 +292,16 @@ if ana_sekme == "📝 Günlük Veri Girişi":
     g_url = st.text_input("🔗 Haber veya Gönderi Linki:", value="", placeholder="https://...", help="İlgili habere veya gönderiye ait tam linki buraya yapıştırın.")
         
     if g_url and g_url != st.session_state.temp_preview["url"]:
-        with st.spinner("Yapay Zeka Devrede: Link Analiz Ediyor..."):
+        with st.spinner("Yapay Zeka Devrede: Link Analiz Ediliyor..."):
             preview = get_link_preview(g_url)
-            if preview:
-                st.session_state.temp_preview = {
-                    "url": g_url, "title": preview["title"], "description": preview["description"], "image": preview["image"], "tags": preview["tags"], "platform": preview["platform"]
-                }
-            else:
-                st.session_state.temp_preview = {"url": g_url, "title": "İçerik Bulunamadı", "description": "Bağlantı engellenmiş olabilir, ancak link yine de başarıyla kaydedilecektir.", "image": None, "tags": "", "platform": "Web Sitesi"}
+            st.session_state.temp_preview = {
+                "url": g_url, 
+                "title": preview["title"], 
+                "description": preview["description"], 
+                "image": preview["image"], 
+                "tags": preview["tags"], 
+                "platform": preview["platform"]
+            }
 
     if st.session_state.temp_preview["title"] and g_url:
         with st.container(border=True):
