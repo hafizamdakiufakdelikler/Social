@@ -275,7 +275,6 @@ if ana_sekme == "📝 Günlük Veri Girişi":
     
     g_url = st.text_input("🔗 Haber veya Gönderi Linki:", value="", placeholder="https://...")
     
-    # YENİ ÖZELLİK: MANUEL METİN GİRİŞİ
     g_manuel_metin = st.text_area("✍️ Gönderi Metni / İçerik (İsteğe Bağlı):", placeholder="Eğer sistem X vb. sitelerde içeriği otomatik çekemezse, gönderinin metnini buraya yapıştırabilirsiniz.", height=100)
         
     if g_url and g_url != st.session_state.temp_preview["url"]:
@@ -290,10 +289,11 @@ if ana_sekme == "📝 Günlük Veri Girişi":
                 "platform": preview["platform"]
             }
 
-    # Kullanıcı metin yapıştırırsa yapay zekayı yeniden tetikle
-    if g_manuel_metin:
-        st.session_state.temp_preview["description"] = g_manuel_metin
-        # Sadece girilen metne göre yeniden etiket üret
+    # KULLANICI METİN GİRERSE BAŞLIĞI VE ÖNİZLEMEYİ ANINDA GÜNCELLE
+    if g_manuel_metin and g_manuel_metin.strip() != "":
+        st.session_state.temp_preview["description"] = g_manuel_metin.strip()
+        kelimeler = g_manuel_metin.split()
+        st.session_state.temp_preview["title"] = " ".join(kelimeler[:7]) + ("..." if len(kelimeler) > 7 else "")
         st.session_state.temp_preview["tags"] = otomatik_etiket_uret(g_manuel_metin)
 
     if st.session_state.temp_preview["title"] and g_url:
@@ -336,16 +336,11 @@ if ana_sekme == "📝 Günlük Veri Girişi":
                 st.error("⚠️ DİKKAT: Bu URL zaten sistemde kayıtlı! Mükerrer kayıt engellendi.")
                 st.stop()
                 
-        # Eğer kullanıcı başlık bulunamadıysa manuel metnin ilk birkaç kelimesini başlık yapsın
-        nihai_baslik = st.session_state.temp_preview["title"]
-        if "Bulunamadı" in nihai_baslik and g_manuel_metin:
-            nihai_baslik = " ".join(g_manuel_metin.split()[:5]) + "..."
-                
         yeni_kayit = {
             "Ay": secilen_ay, "Tarih": secilen_gun, "Kayıt Adı": secilen_kayit, 
             "Tür": "Kişi/Kurum" if "👤" in kayit_turu else "Web Sitesi",
             "platform": g_platform, "url": g_url.strip(), 
-            "baslik": nihai_baslik, 
+            "baslik": st.session_state.temp_preview["title"], 
             "aciklama": st.session_state.temp_preview["description"],
             "etiketler": g_etiketler,
             "web_haber": g_web_haber, "web_duyuru": g_web_duyuru, "web_not": g_web_not, 
