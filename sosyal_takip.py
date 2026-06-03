@@ -117,7 +117,7 @@ def otomatik_etiket_uret(metin):
     if not metin or metin.strip() == "": return ""
     metin = metin.lower()
     kelimeler = re.findall(r'\b[a-zçğıöşü]{4,}\b', metin)
-    stop_words = ["için", "göre", "tarafından", "hakkında", "ile", "veya", "olan", "olarak", "daha", "gibi", "kadar", "sonra", "önce", "üzere", "birlikte", "dair", "yeni"]
+    stop_words = ["için", "göre", "tarafından", "hakkında", "ile", "veya", "olan", "olarak", "daha", "gibi", "kadar", "sonra", "önce", "üzere", "birlikte", "dair", "yeni", "korumalı", "gizli", "içerik", "lütfen", "aşağıdaki", "kutuya", "yapıştırın"]
     temiz_kelimeler = [k for k in kelimeler if k not in stop_words]
     en_cok_gecenler = [k[0] for k in Counter(temiz_kelimeler).most_common(4)]
     return ", ".join(en_cok_gecenler).title()
@@ -143,9 +143,19 @@ def get_link_preview(url):
         og_desc = soup.find("meta", property="og:description")
         og_image = soup.find("meta", property="og:image")
         
-        baslik = og_title["content"] if og_title else "Başlık Bulunamadı"
-        aciklama = og_desc["content"] if og_desc else "İçerik çekilemedi."
+        baslik = og_title["content"] if og_title else ""
+        aciklama = og_desc["content"] if og_desc else ""
         image_url = og_image["content"] if og_image else None
+        
+        # Hata durumlarında akıllı UX tespiti
+        if not baslik or "Access Denied" in baslik or "Just a moment" in baslik or "Twitter" in baslik or "X" in baslik:
+            return {
+                "title": "🔒 Korumalı/Gizli İçerik",
+                "description": "Bu platform içeriklerini gizlemektedir. Lütfen gönderi metnini aşağıdaki manuel giriş alanına yapıştırın.",
+                "image": None,
+                "tags": "", # Hata mesajından saçma etiket üretmesini engelliyoruz!
+                "platform": detected_platform
+            }
         
         return {
             "title": baslik,
@@ -158,8 +168,8 @@ def get_link_preview(url):
     except Exception:
         # Engellenirse çökme, boş döndür (Kullanıcı manuel girecek)
         return {
-            "title": "İçerik Otomatik Çekilemedi",
-            "description": "Gizlilik ayarları nedeniyle içerik okunamadı. Lütfen metni aşağıdaki kutuya manuel yapıştırın.",
+            "title": "🔒 Korumalı İçerik",
+            "description": "Güvenlik ayarları nedeniyle içerik otomatik okunamadı. Lütfen metni aşağıdaki kutuya manuel yapıştırın.",
             "image": None,
             "tags": "",
             "platform": detected_platform
@@ -258,7 +268,8 @@ if ana_sekme == "📝 Günlük Veri Girişi":
                 col_rec_text, col_rec_del = st.columns([8, 1])
                 with col_rec_text:
                     baslik = mk.get('baslik', '')
-                    if baslik == "-" or not baslik: baslik = "Başlık Bulunamadı"
+                    if baslik == "-" or not baslik or "Korumalı" in baslik: 
+                        baslik = "İçerik Girildi"
                     
                     if mk.get("Tür") == "Kişi/Kurum":
                         st.markdown(f"**{idx+1}. [{mk.get('platform')}]** *{baslik}*")
@@ -336,11 +347,16 @@ if ana_sekme == "📝 Günlük Veri Girişi":
                 st.error("⚠️ DİKKAT: Bu URL zaten sistemde kayıtlı! Mükerrer kayıt engellendi.")
                 st.stop()
                 
+        # Eğer kullanıcı manuel metin girdiyse bunu zorunlu başlık yap
+        nihai_baslik = st.session_state.temp_preview["title"]
+        if "Korumalı" in nihai_baslik and g_manuel_metin:
+            nihai_baslik = " ".join(g_manuel_metin.split()[:5]) + "..."
+                
         yeni_kayit = {
             "Ay": secilen_ay, "Tarih": secilen_gun, "Kayıt Adı": secilen_kayit, 
             "Tür": "Kişi/Kurum" if "👤" in kayit_turu else "Web Sitesi",
             "platform": g_platform, "url": g_url.strip(), 
-            "baslik": st.session_state.temp_preview["title"], 
+            "baslik": nihai_baslik, 
             "aciklama": st.session_state.temp_preview["description"],
             "etiketler": g_etiketler,
             "web_haber": g_web_haber, "web_duyuru": g_web_duyuru, "web_not": g_web_not, 
