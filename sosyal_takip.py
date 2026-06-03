@@ -9,7 +9,7 @@ import re
 from collections import Counter
 from streamlit_gsheets import GSheetsConnection
 
-st.set_page_config(page_title="RH+ Sosyal Medya Yönetim Paneli", layout="wide")
+st.set_page_config(page_title="RH+ Sosyal Medya Yönetim Paneli", layout="wide", page_icon="🚀")
 
 # ==========================================
 # 🔒 GİRİŞ SİSTEMİ VE GÜVENLİK AYARI
@@ -31,10 +31,9 @@ if not st.session_state.logged_in:
         if st.button("Sisteme Giriş Yap", use_container_width=True):
             if sifre_giris == GIRIS_SIFRESI:
                 st.session_state.logged_in = True
-                st.success("Giriş başarılı!")
                 st.rerun()
             else:
-                st.error("Hatalı şifre!")
+                st.error("Hatalı şifre! Lütfen tekrar deneyin.")
     st.stop()
 
 # ==========================================
@@ -91,9 +90,8 @@ st.session_state.veri_tabani = canlı_veritabanı_yukle()
 st.session_state.sabit_listeler = bulut_listelerini_yukle()
 
 if "temp_preview" not in st.session_state:
-    st.session_state.temp_preview = {"url": "", "title": "", "description": "", "image": None, "tags": ""}
+    st.session_state.temp_preview = {"url": "", "title": "", "description": "", "image": None, "tags": "", "platform": ""}
 
-platform_listesi = ["Instagram", "YouTube", "LinkedIn", "X", "Nsosyal", "Facebook"]
 aylar_sabit = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"]
 
 # ==========================================
@@ -110,13 +108,34 @@ def otomatik_etiket_uret(metin):
 
 def get_link_preview(url):
     try:
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36'}
-        
-        scrape_url = url
-        if "x.com" in scrape_url or "twitter.com" in scrape_url:
-            scrape_url = scrape_url.replace("x.com", "vxtwitter.com").replace("twitter.com", "vxtwitter.com")
+        url_lower = url.lower()
+        detected_platform = "Diğer"
+        if "instagram.com" in url_lower: detected_platform = "Instagram"
+        elif "youtube.com" in url_lower or "youtu.be" in url_lower: detected_platform = "YouTube"
+        elif "linkedin.com" in url_lower: detected_platform = "LinkedIn"
+        elif "x.com" in url_lower or "twitter.com" in url_lower: detected_platform = "X"
+        elif "facebook.com" in url_lower: detected_platform = "Facebook"
+        elif "nsosyal" in url_lower: detected_platform = "Nsosyal"
+
+        # X (Twitter) İçin JSON API Çözümü (Güçlendirildi)
+        if detected_platform == "X":
+            api_url = url.replace("x.com", "api.vxtwitter.com").replace("twitter.com", "api.vxtwitter.com")
+            api_url = api_url.split("?")[0]
+            res = requests.get(api_url, timeout=8).json()
             
-        response = requests.get(scrape_url, headers=headers, timeout=8)
+            baslik = f"@{res.get('user_screen_name', 'Kullanıcı')} (X Gönderisi)"
+            aciklama = res.get('text', 'Açıklama bulunamadı')
+            
+            image_url = None
+            if res.get('media_extended') and len(res['media_extended']) > 0:
+                image_url = res['media_extended'][0].get('url')
+                
+            oto_etiket = otomatik_etiket_uret(aciklama)
+            return {"title": baslik, "description": aciklama, "image": image_url, "tags": oto_etiket, "platform": detected_platform}
+
+        # Diğer Siteler İçin Standart Çekim
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36'}
+        response = requests.get(url, headers=headers, timeout=8)
         soup = BeautifulSoup(response.content, 'html.parser')
         
         og_title = soup.find("meta", property="og:title")
@@ -141,13 +160,14 @@ def get_link_preview(url):
             "title": baslik,
             "description": aciklama,
             "image": og_image["content"] if og_image else None,
-            "tags": oto_etiket
+            "tags": oto_etiket,
+            "platform": detected_platform
         }
     except Exception:
         return None
 
 # ==========================================
-# SOL MENÜ (SIDEBAR)
+# SOL MENÜ (SIDEBAR) - UX Temizliği Yapıldı
 # ==========================================
 if os.path.exists("logo.jpg"):
     st.sidebar.image("logo.jpg", use_container_width=True)
@@ -155,146 +175,161 @@ if os.path.exists("logo.jpg"):
 st.sidebar.title("🗂️ Yönetim Paneli")
 ana_sekme = st.sidebar.radio("Menü Seçimi:", ["📝 Günlük Veri Girişi", "⚡ Anlık Özet Panosu", "📊 Aylık Rapor Merkezi"])
 
-if st.sidebar.button("🚪 Sistemden Güvenli Çıkış"):
-    st.session_state.logged_in = False
-    st.rerun()
-
 st.sidebar.markdown("---")
 if ana_sekme == "📝 Günlük Veri Girişi":
-    st.sidebar.subheader("👤 Takip Listesi Ayarları")
-    kayit_turu = st.sidebar.radio("Tür Seçin:", ["👤 Kişiler / Kuruluşlar", "🌐 Web Siteleri"])
+    st.sidebar.subheader("⚙️ Takip Listesi Ayarları")
+    kayit_turu = st.sidebar.radio("Çalışma Alanı:", ["👤 Kişiler / Kuruluşlar", "🌐 Web Siteleri"])
 
-    if "👤 Kişiler / Kuruluşlar" in kayit_turu:
-        secilen_kayit = st.sidebar.selectbox("Kişi/Kurum Seçin:", st.session_state.sabit_listeler["kisiler"])
-        yeni_isim = st.sidebar.text_input("✏️ Seçili İsmi Değiştir:", value=secilen_kayit)
-        if st.sidebar.button("🔄 İsmi Güncelle"):
-            if yeni_isim and yeni_isim != secilen_kayit:
-                idx = st.session_state.sabit_listeler["kisiler"].index(secilen_kayit)
-                st.session_state.sabit_listeler["kisiler"][idx] = yeni_isim
-                bulut_listelerini_kaydet(st.session_state.sabit_listeler)
-                for entry in st.session_state.veri_tabani:
-                    if entry.get("Kayıt Adı") == secilen_kayit and entry.get("Tür") == "Kişi/Kurum":
-                        entry["Kayıt Adı"] = yeni_isim
-                canlı_veritabanı_kaydet(st.session_state.veri_tabani)
-                st.success("İsim Google Sheets'te güncellendi!")
-                st.rerun()
-        yeni_kisi = st.sidebar.text_input("➕ Yeni Kişi/Kurum Ekle:")
-        if st.sidebar.button("Kişiyi Ekle"):
-            if yeni_kisi and yeni_kisi not in st.session_state.sabit_listeler["kisiler"]:
-                st.session_state.sabit_listeler["kisiler"].append(yeni_kisi)
-                bulut_listelerini_kaydet(st.session_state.sabit_listeler)
-                st.rerun()
-    else:
-        secilen_kayit = st.sidebar.selectbox("Web Sitesi Seçin:", st.session_state.sabit_listeler["web_siteleri"])
-        yeni_site_ismi = st.sidebar.text_input("✏️ Seçili Site İsmini Değiştir:", value=secilen_kayit)
-        if st.sidebar.button("🔄 Site İsmini Güncelle"):
-            if yeni_site_ismi and yeni_site_ismi != secilen_kayit:
-                idx = st.session_state.sabit_listeler["web_siteleri"].index(secilen_kayit)
-                st.session_state.sabit_listeler["web_siteleri"][idx] = yeni_site_ismi
-                bulut_listelerini_kaydet(st.session_state.sabit_listeler)
-                for entry in st.session_state.veri_tabani:
-                    if entry.get("Kayıt Adı") == secilen_kayit and entry.get("Tür") == "Web Sitesi":
-                        entry["Kayıt Adı"] = yeni_site_ismi
-                canlı_veritabanı_kaydet(st.session_state.veri_tabani)
-                st.success("Site ismi Google Sheets'te güncellendi!")
-                st.rerun()
-        yeni_site = st.sidebar.text_input("➕ Yeni Web Sitesi Ekle:")
-        if st.sidebar.button("Siteyi Ekle"):
-            if yeni_site and yeni_site not in st.session_state.sabit_listeler["web_siteleri"]:
-                st.session_state.sabit_listeler["web_siteleri"].append(yeni_site)
-                bulut_listelerini_kaydet(st.session_state.sabit_listeler)
-                st.rerun()
+    with st.sidebar.expander("✏️ İsimleri Düzenle veya Ekle", expanded=False):
+        if "👤 Kişiler / Kuruluşlar" in kayit_turu:
+            secilen_kayit = st.selectbox("Düzenlenecek Kişi/Kurum:", st.session_state.sabit_listeler["kisiler"])
+            yeni_isim = st.text_input("Seçili İsmi Değiştir:", value=secilen_kayit)
+            if st.button("🔄 İsmi Güncelle", use_container_width=True):
+                if yeni_isim and yeni_isim != secilen_kayit:
+                    idx = st.session_state.sabit_listeler["kisiler"].index(secilen_kayit)
+                    st.session_state.sabit_listeler["kisiler"][idx] = yeni_isim
+                    bulut_listelerini_kaydet(st.session_state.sabit_listeler)
+                    for entry in st.session_state.veri_tabani:
+                        if entry.get("Kayıt Adı") == secilen_kayit and entry.get("Tür") == "Kişi/Kurum":
+                            entry["Kayıt Adı"] = yeni_isim
+                    canlı_veritabanı_kaydet(st.session_state.veri_tabani)
+                    st.toast("İsim başarıyla güncellendi!", icon="✅")
+                    st.rerun()
+            yeni_kisi = st.text_input("➕ Yeni Kişi/Kurum Ekle:")
+            if st.button("Kişiyi Ekle", use_container_width=True):
+                if yeni_kisi and yeni_kisi not in st.session_state.sabit_listeler["kisiler"]:
+                    st.session_state.sabit_listeler["kisiler"].append(yeni_kisi)
+                    bulut_listelerini_kaydet(st.session_state.sabit_listeler)
+                    st.toast("Yeni kişi listeye eklendi!", icon="🎉")
+                    st.rerun()
+        else:
+            secilen_kayit = st.selectbox("Düzenlenecek Web Sitesi:", st.session_state.sabit_listeler["web_siteleri"])
+            yeni_site_ismi = st.text_input("Seçili Siteyi Değiştir:", value=secilen_kayit)
+            if st.button("🔄 Site İsmini Güncelle", use_container_width=True):
+                if yeni_site_ismi and yeni_site_ismi != secilen_kayit:
+                    idx = st.session_state.sabit_listeler["web_siteleri"].index(secilen_kayit)
+                    st.session_state.sabit_listeler["web_siteleri"][idx] = yeni_site_ismi
+                    bulut_listelerini_kaydet(st.session_state.sabit_listeler)
+                    for entry in st.session_state.veri_tabani:
+                        if entry.get("Kayıt Adı") == secilen_kayit and entry.get("Tür") == "Web Sitesi":
+                            entry["Kayıt Adı"] = yeni_site_ismi
+                    canlı_veritabanı_kaydet(st.session_state.veri_tabani)
+                    st.toast("Site ismi güncellendi!", icon="✅")
+                    st.rerun()
+            yeni_site = st.text_input("➕ Yeni Web Sitesi Ekle:")
+            if st.button("Siteyi Ekle", use_container_width=True):
+                if yeni_site and yeni_site not in st.session_state.sabit_listeler["web_siteleri"]:
+                    st.session_state.sabit_listeler["web_siteleri"].append(yeni_site)
+                    bulut_listelerini_kaydet(st.session_state.sabit_listeler)
+                    st.toast("Yeni site listeye eklendi!", icon="🎉")
+                    st.rerun()
+else:
+    # Diğer sayfalarda sol menü temiz kalması için değişkenleri dummy atıyoruz
+    kayit_turu = "👤 Kişiler / Kuruluşlar"
+    secilen_kayit = None
+
+st.sidebar.markdown("---")
+if st.sidebar.button("🚪 Güvenli Çıkış", use_container_width=True):
+    st.session_state.logged_in = False
+    st.rerun()
 
 # ==========================================
 # ANA EKRAN - VERI GIRISI
 # ==========================================
 if ana_sekme == "📝 Günlük Veri Girişi":
     st.title("🚀 Medya ve İçerik Yönetim Paneli")
+    st.markdown("Verilerinizi hızlı ve düzenli bir şekilde doğrudan bulut sisteminize kaydedin.")
     
-    secilen_tarih = st.date_input("📅 Kayıt Tarihi (Otomatik olarak bugünü gösterir, isterseniz geçmişi seçebilirsiniz):", datetime.today())
-    
+    # UX Eklentisi: Yardımcı Tooltip
+    secilen_tarih = st.date_input("📅 Kayıt Tarihi", datetime.today(), help="Sistem varsayılan olarak bugünü seçer. Geçmişteki bir gün için veri girmek istiyorsanız takvimden tarihi değiştirebilirsiniz.")
     secilen_ay = aylar_sabit[secilen_tarih.month - 1]
     secilen_gun = f"{str(secilen_tarih.day).zfill(2)} {secilen_ay}"
 
     st.markdown("---")
-    st.header(f"📝 Veri Girişi: {secilen_kayit} ({secilen_gun})")
-
+    
+    # UX Eklentisi: Seçili Gün Metrik Kartı
     mevcut_kayitlar = [x for x in st.session_state.veri_tabani if x.get("Tarih") == secilen_gun and x.get("Kayıt Adı") == secilen_kayit]
+    
+    col_baslik, col_sayac = st.columns([3, 1])
+    with col_baslik:
+        st.header(f"📝 {secilen_kayit}")
+        st.caption(f"İşlem yapılan tarih: **{secilen_gun}**")
+    with col_sayac:
+        st.metric(label="Bugün Girilen İçerik", value=len(mevcut_kayitlar), help="Seçtiğiniz tarihte bu kişi/kurum için girilen toplam veri sayısı.")
+
     if mevcut_kayitlar:
-        with st.expander(f"📋 Seçili Güne Eklenen Mevcut Gönderiler ({len(mevcut_kayitlar)} Adet)", expanded=True):
+        with st.expander(f"📋 Bu Kayda Eklenen Mevcut Gönderiler ({len(mevcut_kayitlar)} Adet)", expanded=True):
             for idx, mk in enumerate(mevcut_kayitlar):
-                col_rec_text, col_rec_del = st.columns([7, 1])
+                col_rec_text, col_rec_del = st.columns([8, 1])
                 with col_rec_text:
                     baslik = mk.get('baslik', '')
                     if baslik == "-" or not baslik: baslik = "Başlık Bulunamadı"
                     
                     if mk.get("Tür") == "Kişi/Kurum":
-                        st.write(f"**{idx+1}. [{mk.get('platform')}]** *{baslik}*")
+                        st.markdown(f"**{idx+1}. [{mk.get('platform')}]** *{baslik}*")
                     else:
-                        st.write(f"**{idx+1}. [Haber/Duyuru]** 📰 *{baslik[:80]}...* | 🏷️ {mk.get('etiketler', '-')}")
+                        st.markdown(f"**{idx+1}. [Haber/Duyuru]** 📰 *{baslik[:80]}...* | 🏷️ {mk.get('etiketler', '-')}")
                 with col_rec_del:
-                    if st.button("🗑️ Sil", key=f"del_{idx}_{mk.get('url', '')[:10]}"):
+                    if st.button("🗑️ Sil", key=f"del_{idx}_{mk.get('url', '')[:10]}", help="Bu kaydı veritabanından kalıcı olarak siler."):
                         st.session_state.veri_tabani.remove(mk)
                         canlı_veritabanı_kaydet(st.session_state.veri_tabani)
-                        st.success("Kayıt buluttan silindi!")
+                        st.toast("Kayıt sistemden silindi.", icon="🗑️")
                         st.rerun()
 
-    st.subheader("➕ Yeni İçerik / Gönderi Ekle")
+    st.markdown("### ➕ Yeni İçerik Ekle")
+    st.info("💡 Linki yapıştırdığınızda sistem platformu otomatik olarak tanır ve içeriği sizin için çeker.")
     
-    col_plat, col_url = st.columns([1, 3])
-    with col_plat:
-        if "👤" in kayit_turu:
-            g_platform = st.selectbox("Platform:", platform_listesi)
-        else:
-            g_platform = "Web Sitesi"
-            st.info("🌐 Haber / Kurum Sitesi")
-            
-    with col_url:
-        g_url = st.text_input("🔗 Haber veya Gönderi URL Linkini Buraya Yapıştırın:", value="")
+    g_url = st.text_input("🔗 Haber veya Gönderi Linki:", value="", placeholder="https://...", help="İlgili habere veya gönderiye ait tam linki buraya yapıştırın.")
         
     if g_url and g_url != st.session_state.temp_preview["url"]:
-        with st.spinner("Yapay Zeka Linki Analiz Ediyor ve Etiket Üretiyor..."):
+        with st.spinner("Yapay Zeka Devrede: Link Analiz Ediliyor..."):
             preview = get_link_preview(g_url)
             if preview:
                 st.session_state.temp_preview = {
-                    "url": g_url, "title": preview["title"], "description": preview["description"], "image": preview["image"], "tags": preview["tags"]
+                    "url": g_url, "title": preview["title"], "description": preview["description"], "image": preview["image"], "tags": preview["tags"], "platform": preview["platform"]
                 }
             else:
-                st.session_state.temp_preview = {"url": g_url, "title": "Başlık bulunamadı", "description": "Açıklama bulunamadı", "image": None, "tags": ""}
+                st.session_state.temp_preview = {"url": g_url, "title": "İçerik Bulunamadı", "description": "Lütfen linki kontrol ediniz.", "image": None, "tags": "", "platform": "Web Sitesi"}
 
+    # UX Eklentisi: Şık Önizleme Kartı
     if st.session_state.temp_preview["title"] and g_url:
-        st.markdown("#### 📋 Otomatik Çekilen İçerik Önizlemesi")
-        col_img, col_txt = st.columns([1, 2])
-        with col_img:
-            if st.session_state.temp_preview["image"]:
-                st.image(st.session_state.temp_preview["image"], use_container_width=True)
-        with col_txt:
-            st.subheader(st.session_state.temp_preview["title"])
-            st.write(st.session_state.temp_preview["description"])
+        with st.container(border=True):
+            st.markdown("#### 🤖 Otomatik Çekilen İçerik")
+            col_img, col_txt = st.columns([1, 4])
+            with col_img:
+                if st.session_state.temp_preview["image"]:
+                    st.image(st.session_state.temp_preview["image"], use_container_width=True)
+                else:
+                    st.markdown("*(Görsel Yok)*")
+            with col_txt:
+                if "👤" in kayit_turu:
+                    st.markdown(f"**Tespit Edilen Platform:** `{st.session_state.temp_preview.get('platform', 'Hesaplanıyor...')}`")
+                st.subheader(st.session_state.temp_preview["title"])
+                st.caption(st.session_state.temp_preview["description"])
 
     if "👤" in kayit_turu:
-        g_etiketler = st.text_input("🏷️ Kullanılan Etiketler (Otomatik Üretildi):", value=st.session_state.temp_preview["tags"])
+        g_platform = st.session_state.temp_preview.get("platform", "Diğer")
+        g_etiketler = st.text_input("🏷️ Etiketler (Otomatik Üretildi):", value=st.session_state.temp_preview["tags"], help="Yapay zeka tarafından haberden çıkarılan kelimeler. İsterseniz kendiniz de değiştirebilirsiniz.")
         g_web_haber, g_web_duyuru, g_web_not = "-", "-", "-"
     else:
+        g_platform = "Web Sitesi"
         col_e, col_n = st.columns(2)
         with col_e:
-            g_etiketler = st.text_input("🏷️ Habere Dair Etiketler (AI Tarafından Üretildi):", value=st.session_state.temp_preview["tags"])
+            g_etiketler = st.text_input("🏷️ Etiketler:", value=st.session_state.temp_preview["tags"])
         with col_n:
-            g_web_not = st.text_area("📝 Haberle İlgili Özel Notunuz:", height=68)
-        
+            g_web_not = st.text_area("📝 Özel Notunuz:", height=68, placeholder="Haberin önemi veya iletilmek istenen not...")
         g_web_haber = st.session_state.temp_preview["description"]
         g_web_duyuru = "-"
 
-    st.markdown("---")
-    g_genel_not = st.text_area("📌 Arşive veya raporlamaya eklemek istediğiniz genel notlar:", height=100)
+    g_genel_not = st.text_area("📌 Genel Not (İsteğe Bağlı):", height=68, placeholder="Raporlarda görünmesi için bu gönderiyle ilgili eklemek istediğiniz notlar...", help="Bu alan raporlama ekranında görünecektir.")
 
-    st.markdown("---")
-    if st.button("💾 Bu Gönderiyi Google Sheets Bulutuna Kaydet", use_container_width=True):
+    st.markdown("<br>", unsafe_allow_html=True)
+    if st.button("💾 Kaydet ve Buluta Gönder", use_container_width=True, type="primary"):
         if g_url and g_url.strip() != "-" and g_url.strip() != "":
             temiz_url = g_url.strip().lower()
             kayitli_mi = any(kayit.get("url", "").strip().lower() == temiz_url for kayit in st.session_state.veri_tabani)
             if kayitli_mi:
-                st.error("⚠️ DİKKAT: Bu URL zaten sistemde kayıtlı! Lütfen farklı bir gönderi linki girin.")
+                st.error("⚠️ DİKKAT: Bu URL zaten sistemde kayıtlı! Mükerrer kayıt engellendi.")
                 st.stop()
                 
         yeni_kayit = {
@@ -309,21 +344,25 @@ if ana_sekme == "📝 Günlük Veri Girişi":
         }
         st.session_state.veri_tabani.append(yeni_kayit)
         canlı_veritabanı_kaydet(st.session_state.veri_tabani)
-        st.session_state.temp_preview = {"url": "", "title": "", "description": "", "image": None, "tags": ""}
-        st.success(f"🎉 Rapor başarıyla doğrudan Google Sheets dosyanıza işlendi!")
+        st.session_state.temp_preview = {"url": "", "title": "", "description": "", "image": None, "tags": "", "platform": ""}
+        
+        # UX Eklentisi: Zarif Bildirim (Toast)
+        st.toast("Rapor Google Sheets'e işlendi!", icon="✅")
         st.rerun()
 
 # ==========================================
 # ANLIK CANLI ÖZET PANOSU VE GÜNLÜK PAYLAŞIM
 # ==========================================
 elif ana_sekme == "⚡ Anlık Özet Panosu":
-    st.title("⚡ Anlık Kurumsal Performans Panosu")
-    st.markdown("Bu sayfa sistemdeki **tüm zamanlara ait** verilerinizi anlık olarak analiz eder.")
+    st.title("⚡ Kurumsal Performans Panosu")
+    st.markdown("Sistemdeki **tüm zamanlara ait** verilerin anlık analizini ve paylaşım modülünü burada bulabilirsiniz.")
     
     if st.session_state.veri_tabani:
         df_all = pd.DataFrame(st.session_state.veri_tabani)
         
-        st.metric("Toplam Arşivlenen İçerik", len(df_all))
+        col1, col2 = st.columns([1, 3])
+        with col1:
+            st.metric("Toplam Arşivlenen İçerik", len(df_all))
         
         st.markdown("---")
         col_grafik, col_son_eklenen = st.columns([1, 2])
@@ -334,26 +373,26 @@ elif ana_sekme == "⚡ Anlık Özet Panosu":
             if not platform_dagilimi.empty:
                 st.bar_chart(platform_dagilimi)
             else:
-                st.info("Grafik için yeterli sosyal medya verisi yok.")
+                st.info("Grafik için veri yok.")
                 
         with col_son_eklenen:
-            st.subheader("🆕 Sisteme Eklenen Son 5 İçerik")
+            st.subheader("🆕 Son Eklenen 5 İçerik")
             son_5 = df_all.tail(5)[["Tarih", "Kayıt Adı", "Tür", "baslik"]]
             son_5 = son_5.rename(columns={"baslik": "Başlık / İçerik"})
             st.dataframe(son_5, use_container_width=True, hide_index=True)
 
         st.markdown("---")
         st.subheader("📤 Günlük Toplu Link Paylaşım Modülü")
-        st.write("Yöneticilerinize veya müşterilerinize o günkü tüm haberleri tek bir mesaj olarak göndermek için kullanabilirsiniz.")
+        st.caption("Yöneticilerinize veya müşterilerinize o günkü haberleri tek mesajda göndermek için (WhatsApp/E-Posta) uygundur.")
         
         mevcut_tarihler = sorted(df_all["Tarih"].dropna().unique().tolist(), reverse=True)
         
         if mevcut_tarihler:
-            secilen_paylasim_tarihi = st.selectbox("📅 Raporunu Almak İstediğiniz Günü Seçin:", mevcut_tarihler)
+            secilen_paylasim_tarihi = st.selectbox("📅 Paylaşım İçin Gün Seçin:", mevcut_tarihler)
             gunluk_veriler = df_all[df_all["Tarih"] == secilen_paylasim_tarihi]
             
             if not gunluk_veriler.empty:
-                mesaj_metni = f"📅 *{secilen_paylasim_tarihi} - Günlük Medya ve Haber Takip Raporu:*\n\n"
+                mesaj_metni = f"📅 *{secilen_paylasim_tarihi} - Günlük Medya Takip Raporu:*\n\n"
                 
                 for i, row in enumerate(gunluk_veriler.to_dict('records')):
                     tur = row.get("Tür", "")
@@ -366,20 +405,21 @@ elif ana_sekme == "⚡ Anlık Özet Panosu":
                     else:
                         mesaj_metni += f"*{i+1}. [Haber/Duyuru]* {baslik}\n🔗 {url}\n\n"
                 
-                st.info("💡 Aşağıdaki siyah kutunun sağ üst köşesinde beliren 'Kopyala' simgesine basarak tüm listeyi tek tıkla kopyalayabilirsiniz.")
+                st.success("💡 Siyah kutunun sağ üst köşesindeki 'Kopyala' butonuna basarak tüm listeyi alabilirsiniz.")
                 st.code(mesaj_metni, language="text")
                 
     else:
-        st.info("Sistemde henüz analiz edilecek bir kayıt bulunmuyor.")
+        st.info("Sistemde henüz analiz edilecek kayıt bulunmuyor.")
 
 # ==========================================
 # ANA EKRAN - AYLIK RAPORLAMA VE EXCEL CIKTI
 # ==========================================
 elif ana_sekme == "📊 Aylık Rapor Merkezi":
     st.title("📊 Aylık Raporlama ve Çıktı Merkezi")
+    st.markdown("Seçtiğiniz aya ait detaylı dökümleri görüntüleyin ve Excel olarak bilgisayarınıza indirin.")
     
     aylar_sabit_isimler = ["Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"]
-    rapor_ay = st.selectbox("🔍 Raporunu Görmek İstediğiniz Ayı Seçin:", aylar_sabit_isimler)
+    rapor_ay = st.selectbox("🔍 Raporunu İncelemek İstediğiniz Ayı Seçin:", aylar_sabit_isimler)
     
     rapor_listesi = []
     for deger in st.session_state.veri_tabani:
@@ -400,20 +440,22 @@ elif ana_sekme == "📊 Aylık Rapor Merkezi":
         df_rapor = pd.DataFrame(rapor_listesi)
         df_rapor = df_rapor.sort_values(by="Tarih")
         
-        st.subheader(f"📋 {rapor_ay} Ayı Detaylı Kayıt Tablosu")
-        st.dataframe(df_rapor, use_container_width=True, hide_index=True)
-        
-        buffer = io.BytesIO()
-        with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-            df_rapor.to_excel(writer, sheet_name=rapor_ay, index=False)
-        
-        st.markdown("---")
-        st.download_button(
-            label=f"📥 {rapor_ay} Ayı Raporunu Excel Olarak İndir",
-            data=buffer.getvalue(),
-            file_name=f"{rapor_ay}_Sosyal_Medya_Raporu.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True
-        )
+        with st.container(border=True):
+            st.subheader(f"📋 {rapor_ay} Ayı Kayıt Tablosu")
+            st.dataframe(df_rapor, use_container_width=True, hide_index=True)
+            
+            buffer = io.BytesIO()
+            with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+                df_rapor.to_excel(writer, sheet_name=rapor_ay, index=False)
+            
+            st.markdown("<br>", unsafe_allow_html=True)
+            st.download_button(
+                label=f"📥 {rapor_ay} Raporunu Excel Olarak İndir",
+                data=buffer.getvalue(),
+                file_name=f"{rapor_ay}_Medya_Takip_Raporu.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True,
+                type="primary"
+            )
     else:
-        st.info(f"{rapor_ay} ayına ait henüz bulutta kaydedilmiş bir veri bulunamadı.")
+        st.info(f"{rapor_ay} ayına ait henüz veri girişi yapılmamış.")
