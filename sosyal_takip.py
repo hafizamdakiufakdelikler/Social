@@ -106,14 +106,33 @@ if "temp_preview" not in st.session_state:
 aylar_sabit = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"]
 
 # ==========================================
-# AKILLI METİN VE ETİKET ANALİZ MOTORU
+# AKILLI METİN VE YENİ DERİN ETİKET MOTORU
 # ==========================================
-def otomatik_etiket_uret(metin):
+def otomatik_etiket_uret(baslik, icerik=""):
+    metin = f"{baslik} {icerik}"
     if not metin or metin.strip() == "": return ""
+    
+    # Türkçe BÜYÜK/küçük harf sorunlarını aşmak için özel dönüşüm
+    buyuk_harfler = {"I": "ı", "İ": "i", "Ş": "ş", "Ğ": "ğ", "Ü": "ü", "Ö": "ö", "Ç": "ç"}
+    for k, v in buyuk_harfler.items():
+        metin = metin.replace(k, v)
     metin = metin.lower()
+    
+    # En az 4 harfli kelimeleri seç
     kelimeler = re.findall(r'\b[a-zçğıöşü]{4,}\b', metin)
-    stop_words = ["için", "göre", "tarafından", "hakkında", "ile", "veya", "olan", "olarak", "daha", "gibi", "kadar", "sonra", "önce", "üzere", "birlikte", "dair", "yeni", "korumalı", "gizli", "içerik", "lütfen", "aşağıdaki", "kutuya", "yapıştırın"]
+    
+    # Katılaştırılmış Filtre
+    stop_words = [
+        "için", "göre", "tarafından", "hakkında", "ile", "veya", "olan", "olarak", 
+        "daha", "gibi", "kadar", "sonra", "önce", "üzere", "birlikte", "dair", "yeni", 
+        "korumalı", "gizli", "içerik", "lütfen", "aşağıdaki", "kutuya", "yapıştırın",
+        "başlık", "açıklama", "bulunamadı", "çekilemedi", "kullanıcı", "gönderisi",
+        "videosu", "olduğu", "yaptı", "edildi", "dedi", "olduğunu", "vardı", "yoktu"
+    ]
+    
     temiz_kelimeler = [k for k in kelimeler if k not in stop_words]
+    
+    # İçerikten beslenerek en çok geçen 4 kelimeyi bul
     en_cok_gecenler = [k[0] for k in Counter(temiz_kelimeler).most_common(4)]
     return ", ".join(en_cok_gecenler).title()
 
@@ -136,7 +155,9 @@ def get_link_preview(url):
             baslik = res.get("title", "Başlık Bulunamadı")
             aciklama = f"Kanal: {res.get('author_name', 'Bilinmeyen Kanal')} (YouTube Videosu)"
             image_url = res.get("thumbnail_url")
-            return {"title": baslik, "description": aciklama, "image": image_url, "tags": otomatik_etiket_uret(baslik), "platform": "YouTube"}
+            # Not: YouTube açıklamayı vermediği için sadece başlıktan üretiriz. 
+            # Detaylı etiket isteniyorsa videonun açıklaması manuel kutuya yapıştırılmalıdır.
+            return {"title": baslik, "description": aciklama, "image": image_url, "tags": otomatik_etiket_uret(baslik, ""), "platform": "YouTube"}
 
         # X (Twitter) İçin JSON API Çözümü
         if detected_platform == "X":
@@ -155,9 +176,9 @@ def get_link_preview(url):
             elif res.get('mediaURLs') and len(res['mediaURLs']) > 0:
                 image_url = res['mediaURLs'][0]
                 
-            return {"title": baslik, "description": aciklama, "image": image_url, "tags": otomatik_etiket_uret(aciklama), "platform": "X"}
+            return {"title": baslik, "description": aciklama, "image": image_url, "tags": otomatik_etiket_uret(baslik, aciklama), "platform": "X"}
 
-        # INSTAGRAM, FACEBOOK, LINKEDIN İÇİN WHATSAPP/MESSENGER BOT TAKLİDİ
+        # INSTAGRAM, FACEBOOK, LINKEDIN VE WEB SİTELERİ İÇİN DERİN OKUMA (Deep Scraping)
         headers = {
             'User-Agent': 'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)',
             'Accept-Language': 'tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7'
@@ -177,8 +198,13 @@ def get_link_preview(url):
         if not baslik:
             fallback_title = soup.find("title")
             baslik = fallback_title.text.strip() if fallback_title else ""
+            
+        # Haber ve Kurum sitelerinden P (Paragraf) etiketlerini çekerek içeriği zenginleştir
+        derin_icerik = ""
+        if detected_platform == "Web Sitesi" or detected_platform == "Nsosyal":
+            paragraflar = soup.find_all("p")
+            derin_icerik = " ".join([p.text.strip() for p in paragraflar[:4]]) # İlk 4 paragrafı al
         
-        # Site yine de giriş duvarı çıkarırsa yakala
         engelli_kelimeler = ["Access Denied", "Just a moment", "Log In", "Sign Up", "LinkedIn Login", "Login • Instagram", "Facebook - Log In"]
         if not baslik or any(kelime in baslik for kelime in engelli_kelimeler):
             return {
@@ -189,11 +215,12 @@ def get_link_preview(url):
                 "platform": detected_platform
             }
         
+        # Etiket motoruna hem Başlığı, hem Açıklamayı, hem de Siteden Çekilen Derin İçeriği yolla
         return {
             "title": baslik,
             "description": aciklama,
             "image": image_url,
-            "tags": otomatik_etiket_uret(baslik + " " + aciklama),
+            "tags": otomatik_etiket_uret(baslik, aciklama + " " + derin_icerik),
             "platform": detected_platform
         }
         
@@ -317,10 +344,10 @@ if ana_sekme == "📝 Günlük Veri Girişi":
     
     g_url = st.text_input("🔗 Haber veya Gönderi Linki:", value="", placeholder="https://...")
     
-    g_manuel_metin = st.text_area("✍️ Gönderi Metni / İçerik (İsteğe Bağlı):", placeholder="Eğer hesap gizliyse ve sistem içeriği çekemezse, kopyaladığınız gönderi metnini doğrudan buraya yapıştırın. Sistem her şeyi otomatik halledecektir.", height=100)
+    g_manuel_metin = st.text_area("✍️ Gönderi Metni / İçerik (İsteğe Bağlı):", placeholder="Eğer hesap gizliyse ve sistem içeriği çekemezse, kopyaladığınız gönderi metnini doğrudan buraya yapıştırın.", height=100)
         
     if g_url and g_url != st.session_state.temp_preview["url"]:
-        with st.spinner("Link Analiz Ediliyor..."):
+        with st.spinner("Link ve İçerik Analiz Ediliyor..."):
             preview = get_link_preview(g_url)
             st.session_state.temp_preview = {
                 "url": g_url, 
@@ -331,7 +358,6 @@ if ana_sekme == "📝 Günlük Veri Girişi":
                 "platform": preview["platform"]
             }
 
-    # EKRANDA ANLIK GÜNCELLEME İÇİN MANUEL METİN KONTROLÜ
     gorunen_baslik = st.session_state.temp_preview["title"]
     gorunen_aciklama = st.session_state.temp_preview["description"]
     gorunen_etiketler = st.session_state.temp_preview["tags"]
@@ -340,7 +366,8 @@ if ana_sekme == "📝 Günlük Veri Girişi":
         gorunen_aciklama = g_manuel_metin.strip()
         kelimeler = gorunen_aciklama.split()
         gorunen_baslik = " ".join(kelimeler[:7]) + ("..." if len(kelimeler) > 7 else "")
-        gorunen_etiketler = otomatik_etiket_uret(gorunen_aciklama)
+        # Kullanıcı manuel metin girerse, yapay zeka sadece bu girdiğiniz zengin metinden etiket üretir!
+        gorunen_etiketler = otomatik_etiket_uret(gorunen_baslik, gorunen_aciklama)
 
     if gorunen_baslik and g_url:
         with st.container(border=True):
@@ -359,13 +386,13 @@ if ana_sekme == "📝 Günlük Veri Girişi":
 
     if "👤" in kayit_turu:
         g_platform = st.session_state.temp_preview.get("platform", "Diğer")
-        g_etiketler = st.text_input("🏷️ Etiketler (Yapay Zeka Destekli):", value=gorunen_etiketler)
+        g_etiketler = st.text_input("🏷️ İçerikten Çıkarılan Etiketler:", value=gorunen_etiketler)
         g_web_haber, g_web_duyuru, g_web_not = "-", "-", "-"
     else:
         g_platform = "Web Sitesi"
         col_e, col_n = st.columns(2)
         with col_e:
-            g_etiketler = st.text_input("🏷️ Etiketler:", value=gorunen_etiketler)
+            g_etiketler = st.text_input("🏷️ İçerikten Çıkarılan Etiketler:", value=gorunen_etiketler)
         with col_n:
             g_web_not = st.text_area("📝 Özel Notunuz:", height=68)
         g_web_haber = gorunen_aciklama
@@ -382,7 +409,6 @@ if ana_sekme == "📝 Günlük Veri Girişi":
                 st.error("⚠️ DİKKAT: Bu URL zaten sistemde kayıtlı! Mükerrer kayıt engellendi.")
                 st.stop()
                 
-        # Kaydederken Manuel Metni Kesinlikle Veritabanına Al
         kayit_baslik = st.session_state.temp_preview["title"]
         kayit_aciklama = st.session_state.temp_preview["description"]
         
