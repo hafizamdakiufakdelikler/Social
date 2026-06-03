@@ -117,57 +117,51 @@ def get_link_preview(url):
         elif "facebook.com" in url_lower: detected_platform = "Facebook"
         elif "nsosyal" in url_lower: detected_platform = "Nsosyal"
 
-        # X (Twitter) İçin JSON API Çözümü (Güçlendirildi)
+        scrape_url = url
+        # X (Twitter) Bypass: FxTwitter Köprüsü Kullan (Sorunsuz HTML çeker)
         if detected_platform == "X":
-            api_url = url.replace("x.com", "api.vxtwitter.com").replace("twitter.com", "api.vxtwitter.com")
-            api_url = api_url.split("?")[0]
-            res = requests.get(api_url, timeout=8).json()
-            
-            baslik = f"@{res.get('user_screen_name', 'Kullanıcı')} (X Gönderisi)"
-            aciklama = res.get('text', 'Açıklama bulunamadı')
-            
-            image_url = None
-            if res.get('media_extended') and len(res['media_extended']) > 0:
-                image_url = res['media_extended'][0].get('url')
-                
-            oto_etiket = otomatik_etiket_uret(aciklama)
-            return {"title": baslik, "description": aciklama, "image": image_url, "tags": oto_etiket, "platform": detected_platform}
+            scrape_url = url.split("?")[0].replace("x.com", "fxtwitter.com").replace("twitter.com", "fxtwitter.com")
 
-        # Diğer Siteler İçin Standart Çekim
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36'}
-        response = requests.get(url, headers=headers, timeout=8)
+        # Discord Bot Taklidi: X ve diğer siteler botlara önizleme vermek zorundadır.
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (compatible; Discordbot/2.0; +https://discordapp.com)'
+        }
+        
+        response = requests.get(scrape_url, headers=headers, timeout=10)
         soup = BeautifulSoup(response.content, 'html.parser')
         
-        og_title = soup.find("meta", property="og:title")
-        og_desc = soup.find("meta", property="og:description")
-        og_image = soup.find("meta", property="og:image")
+        # Hem 'og:' hem de 'twitter:' meta etiketlerini ara
+        og_title = soup.find("meta", property="og:title") or soup.find("meta", attrs={"name": "twitter:title"})
+        og_desc = soup.find("meta", property="og:description") or soup.find("meta", attrs={"name": "twitter:description"})
+        og_image = soup.find("meta", property="og:image") or soup.find("meta", attrs={"name": "twitter:image"})
         
         if not og_title:
             fallback_title = soup.find("title")
-            baslik = fallback_title.text.strip() if fallback_title else "Başlık bulunamadı"
+            baslik = fallback_title.text.strip() if fallback_title else "Başlık Bulunamadı"
         else:
-            baslik = og_title["content"]
+            baslik = og_title.get("content", "Başlık Bulunamadı")
             
         if not og_desc:
             fallback_desc = soup.find("meta", attrs={"name": "description"})
-            aciklama = fallback_desc["content"] if fallback_desc else "Açıklama bulunamadı"
+            aciklama = fallback_desc.get("content", "Açıklama Bulunamadı") if fallback_desc else "Açıklama Bulunamadı"
         else:
-            aciklama = og_desc["content"]
+            aciklama = og_desc.get("content", "Açıklama Bulunamadı")
         
         oto_etiket = otomatik_etiket_uret(baslik + " " + aciklama)
+        image_url = og_image.get("content") if og_image else None
         
         return {
             "title": baslik,
             "description": aciklama,
-            "image": og_image["content"] if og_image else None,
+            "image": image_url,
             "tags": oto_etiket,
             "platform": detected_platform
         }
-    except Exception:
+    except Exception as e:
         return None
 
 # ==========================================
-# SOL MENÜ (SIDEBAR) - UX Temizliği Yapıldı
+# SOL MENÜ (SIDEBAR)
 # ==========================================
 if os.path.exists("logo.jpg"):
     st.sidebar.image("logo.jpg", use_container_width=True)
@@ -224,7 +218,6 @@ if ana_sekme == "📝 Günlük Veri Girişi":
                     st.toast("Yeni site listeye eklendi!", icon="🎉")
                     st.rerun()
 else:
-    # Diğer sayfalarda sol menü temiz kalması için değişkenleri dummy atıyoruz
     kayit_turu = "👤 Kişiler / Kuruluşlar"
     secilen_kayit = None
 
@@ -240,14 +233,12 @@ if ana_sekme == "📝 Günlük Veri Girişi":
     st.title("🚀 Medya ve İçerik Yönetim Paneli")
     st.markdown("Verilerinizi hızlı ve düzenli bir şekilde doğrudan bulut sisteminize kaydedin.")
     
-    # UX Eklentisi: Yardımcı Tooltip
     secilen_tarih = st.date_input("📅 Kayıt Tarihi", datetime.today(), help="Sistem varsayılan olarak bugünü seçer. Geçmişteki bir gün için veri girmek istiyorsanız takvimden tarihi değiştirebilirsiniz.")
     secilen_ay = aylar_sabit[secilen_tarih.month - 1]
     secilen_gun = f"{str(secilen_tarih.day).zfill(2)} {secilen_ay}"
 
     st.markdown("---")
     
-    # UX Eklentisi: Seçili Gün Metrik Kartı
     mevcut_kayitlar = [x for x in st.session_state.veri_tabani if x.get("Tarih") == secilen_gun and x.get("Kayıt Adı") == secilen_kayit]
     
     col_baslik, col_sayac = st.columns([3, 1])
@@ -282,16 +273,15 @@ if ana_sekme == "📝 Günlük Veri Girişi":
     g_url = st.text_input("🔗 Haber veya Gönderi Linki:", value="", placeholder="https://...", help="İlgili habere veya gönderiye ait tam linki buraya yapıştırın.")
         
     if g_url and g_url != st.session_state.temp_preview["url"]:
-        with st.spinner("Yapay Zeka Devrede: Link Analiz Ediliyor..."):
+        with st.spinner("Yapay Zeka Devrede: Link Analiz Ediyor..."):
             preview = get_link_preview(g_url)
             if preview:
                 st.session_state.temp_preview = {
                     "url": g_url, "title": preview["title"], "description": preview["description"], "image": preview["image"], "tags": preview["tags"], "platform": preview["platform"]
                 }
             else:
-                st.session_state.temp_preview = {"url": g_url, "title": "İçerik Bulunamadı", "description": "Lütfen linki kontrol ediniz.", "image": None, "tags": "", "platform": "Web Sitesi"}
+                st.session_state.temp_preview = {"url": g_url, "title": "İçerik Bulunamadı", "description": "Bağlantı engellenmiş olabilir, ancak link yine de başarıyla kaydedilecektir.", "image": None, "tags": "", "platform": "Web Sitesi"}
 
-    # UX Eklentisi: Şık Önizleme Kartı
     if st.session_state.temp_preview["title"] and g_url:
         with st.container(border=True):
             st.markdown("#### 🤖 Otomatik Çekilen İçerik")
@@ -346,7 +336,6 @@ if ana_sekme == "📝 Günlük Veri Girişi":
         canlı_veritabanı_kaydet(st.session_state.veri_tabani)
         st.session_state.temp_preview = {"url": "", "title": "", "description": "", "image": None, "tags": "", "platform": ""}
         
-        # UX Eklentisi: Zarif Bildirim (Toast)
         st.toast("Rapor Google Sheets'e işlendi!", icon="✅")
         st.rerun()
 
