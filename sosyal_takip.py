@@ -106,19 +106,15 @@ if "temp_preview" not in st.session_state:
 aylar_sabit = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"]
 
 # ==========================================
-# AKILLI LİNK EŞLEŞTİRME VE ETİKET MOTORU
+# GELİŞMİŞ PUANLAMALI ETİKET MOTORU
 # ==========================================
 def url_den_kisi_bul(url, tum_kayitlar):
-    """URL'nin içindeki kelimelere bakarak listedeki kişiyi/kurumu otomatik bulur."""
     if not url: return None
     url_lower = url.lower()
     for rec in sorted(tum_kayitlar, key=len, reverse=True):
         if not rec: continue
-        # İsimleri temizle (Örn: "Haluk Görgün" -> "halukgorgun")
         simplified_rec = rec.lower().replace("ı","i").replace("ğ","g").replace("ü","u").replace("ş","s").replace("ö","o").replace("ç","c")
         simplified_rec = re.sub(r'[^a-z0-9]', '', simplified_rec)
-        
-        # En az 3 harfli sağlam bir eşleşme arar
         if len(simplified_rec) >= 3 and simplified_rec in url_lower:
             return rec
     return None
@@ -127,17 +123,69 @@ def otomatik_etiket_uret(baslik, icerik=""):
     metin = f"{baslik} {icerik}"
     if not metin or metin.strip() == "": return ""
     
-    buyuk_harfler = {"I": "ı", "İ": "i", "Ş": "ş", "Ğ": "ğ", "Ü": "ü", "Ö": "ö", "Ç": "ç"}
-    for k, v in buyuk_harfler.items():
-        metin = metin.replace(k, v)
-    metin = metin.lower()
+    # URL ve Domain isimlerini temizle
+    metin = re.sub(r'http[s]?://\S+', '', metin)
+    metin = re.sub(r'\b\S+\.com\b', '', metin, flags=re.IGNORECASE)
     
-    kelimeler = re.findall(r'\b[a-zçğıöşü]{4,}\b', metin)
-    stop_words = ["için", "göre", "tarafından", "hakkında", "ile", "veya", "olan", "olarak", "daha", "gibi", "kadar", "sonra", "önce", "üzere", "birlikte", "dair", "yeni", "korumalı", "gizli", "içerik", "lütfen", "aşağıdaki", "kutuya", "yapıştırın", "başlık", "bulunamadı", "çekilemedi", "olduğu", "yaptı", "edildi", "olduğunu", "dedi"]
-    temiz_kelimeler = [k for k in kelimeler if k not in stop_words]
+    # Tireli ve sayili kelimeleri koruyacak Regex (Örn: F-35, TR-3)
+    kelimeler = re.findall(r'\b[A-Za-z0-9çğıöşüÇĞİÖŞÜ]+(?:-[A-Za-z0-9çğıöşüÇĞİÖŞÜ]+)*\b', metin)
     
-    en_cok_gecenler = [k[0] for k in Counter(temiz_kelimeler).most_common(4)]
-    return ", ".join(en_cok_gecenler).title()
+    # Kapsamlı yasaklı kelimeler (Fiiller ve bağlaçlar)
+    stop_words = {
+        "icin", "gore", "tarafindan", "hakkinda", "ile", "veya", "olan", "olarak",
+        "daha", "gibi", "kadar", "sonra", "once", "uzere", "birlikte", "dair", "yeni",
+        "baslik", "bulunamadi", "cekilemedi", "oldugu", "yapti", "edildi", "oldugunu",
+        "dedi", "basladi", "bulunan", "yurutulen", "ilk", "bir", "cok", "bazi", "tum",
+        "tumu", "baskasi", "baska", "diye", "ragmen", "tek", "karsi", "karsin", "yerine",
+        "disinda", "yuzunden", "dolayi", "oturu", "boyunca", "boyu", "surece", "beraber",
+        "ait", "iliskin", "karsilik", "degil", "evet", "hayir", "var", "yok", "biz", "siz",
+        "oldu", "olacak", "yapildi", "yapilacak", "edilecek", "eden", "alan", "yapan",
+        "etti", "geldi", "gitti", "alinacak", "alindi", "verildi", "verilecek", "icin",
+        "veriyor", "aliyor", "yapiyor", "ediyor", "bulundu", "bulunuyor", "cikti",
+        "cikacak", "sirasinda", "esnasinda", "nedeniyle", "sonucunda", "kapsaminda",
+        "adeta", "sanki", "zaten", "henuz", "ancak", "fakat", "lakin", "aciklamasi",
+        "paylasimi", "gonderisi", "videosu", "kanali", "son", "kez", "kendi", "bunu",
+        "bunun", "bunda", "bundan", "sunu", "sunun", "sunda", "sundan", "onu", "onun",
+        "onda", "ondan", "onlar", "onlari", "onlarin", "her", "herkes", "hic", "hicbir", 
+        "kimse", "zaman", "gun", "ay", "yil", "bugun", "yarin", "dun", "devam", "ilgili", 
+        "yonelik", "yonetimi", "baskanimiz", "www", "com", "net", "org"
+    }
+
+    def asciify(word):
+        replacements = {"ı":"i", "i":"i", "ş":"s", "ğ":"g", "ü":"u", "ö":"o", "ç":"c",
+                        "I":"i", "İ":"i", "Ş":"s", "Ğ":"g", "Ü":"u", "Ö":"o", "Ç":"c"}
+        w = word
+        for k,v in replacements.items():
+            w = w.replace(k, v)
+        return w.lower()
+
+    gecerli_kelimeler = []
+    for k in kelimeler:
+        if len(k) < 3: continue
+        if k.isdigit(): continue
+        
+        ascii_k = asciify(k)
+        if ascii_k not in stop_words:
+            # Büyük harfleri veya tireli modelleri koru
+            if "-" in k or any(c.isupper() for c in k[1:]): 
+                gecerli_kelimeler.append(k.upper())
+            else:
+                gecerli_kelimeler.append(k.title())
+
+    sayac = Counter(gecerli_kelimeler)
+    
+    # Akıllı Puanlama: F-35 gibi kelimelere +5 ekstra puan
+    def kelime_puani(item):
+        kelime, frekans = item
+        puan = frekans * 10
+        if "-" in kelime or any(char.isdigit() for char in kelime) or kelime.isupper():
+            puan += 5
+        return puan
+
+    sirali = sorted(sayac.items(), key=kelime_puani, reverse=True)
+    en_iyiler = [k[0] for k in sirali[:5]]
+    
+    return ", ".join(en_iyiler)
 
 def get_link_preview(url):
     url_lower = url.lower()
@@ -223,7 +271,6 @@ def get_link_preview(url):
 # ==========================================
 # SOL MENÜ (SIDEBAR) - TEK LİSTE YÖNETİMİ
 # ==========================================
-# UI için tüm listeleri tek bir havuzda birleştiriyoruz
 tum_kayitlar = sorted(list(set(st.session_state.sabit_listeler["kisiler"] + st.session_state.sabit_listeler["web_siteleri"])))
 if "" in tum_kayitlar: tum_kayitlar.remove("")
 
@@ -287,7 +334,6 @@ if ana_sekme == "📝 Günlük Veri Girişi":
     
     g_url = st.text_input("1️⃣ 🔗 Haber veya Gönderi Linkini Buraya Yapıştırın:", value="", placeholder="https://...")
     
-    # URL Analizi ve Otomatik Seçimler
     if g_url and g_url != st.session_state.temp_preview["url"]:
         with st.spinner("Link ve İçerik Analiz Ediliyor..."):
             preview = get_link_preview(g_url)
@@ -302,12 +348,10 @@ if ana_sekme == "📝 Günlük Veri Girişi":
                 "matched_person": match
             }
 
-    # URL'den Eşleşen Kişiyi Otomatik Seçtirme
     matched_person = st.session_state.temp_preview.get("matched_person")
     default_idx = tum_kayitlar.index(matched_person) if matched_person and matched_person in tum_kayitlar else 0
     secilen_kayit = st.selectbox("2️⃣ 👤 İlgili Kişi / Kurum (URL'den otomatik seçilir):", tum_kayitlar, index=default_idx)
 
-    # Otomatik Kategori (Tür) Yönlendirmesi
     g_platform = st.session_state.temp_preview.get("platform", "Web Sitesi")
     if g_platform in ["Instagram", "YouTube", "LinkedIn", "X", "Facebook", "Nsosyal"]:
         kayit_turu_oto = "Kişi/Kurum"
@@ -319,7 +363,6 @@ if ana_sekme == "📝 Günlük Veri Girişi":
 
     g_manuel_metin = st.text_area("3️⃣ ✍️ Gönderi Metni / İçerik (Sistem çekemezse yapıştırın):", height=100)
 
-    # Ekranda Anlık Güncelleme
     gorunen_baslik = st.session_state.temp_preview["title"]
     gorunen_aciklama = st.session_state.temp_preview["description"]
     gorunen_etiketler = st.session_state.temp_preview["tags"]
@@ -392,7 +435,6 @@ if ana_sekme == "📝 Günlük Veri Girişi":
         st.toast("Rapor Google Sheets'e işlendi!", icon="✅")
         st.rerun()
 
-    # BUGÜNKÜ KAYITLARI GÖSTERME (Aşağıya alındı, sayfa akışı daha temiz)
     st.markdown("---")
     mevcut_kayitlar = [x for x in st.session_state.veri_tabani if x.get("Tarih") == secilen_gun]
     if mevcut_kayitlar:
